@@ -1,0 +1,985 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f5f9f2">
+<title>MetaClean — private image metadata cleaner</title>
+<meta name="description" content="Remove image metadata and recognized AI/provenance tags locally in your browser. Drop, clean and download. No uploads.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23176c42'/%3E%3Cpath d='M16 5 25 9v6c0 6-4 10-9 12-5-2-9-6-9-12V9z' fill='none' stroke='%23b8f5cd' stroke-width='2.5'/%3E%3Cpath d='m11.5 16 3 3 6-7' fill='none' stroke='%23fff' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f5f9f2;
+  --card:#fff;
+  --card2:#ecf6ec;
+  --line:rgba(37,101,61,.16);
+  --line2:rgba(37,101,61,.30);
+  --txt:#183b2b;
+  --mut:#537161;
+  --soft:#687f70;
+  --mint:#177b4b;
+  --lav:#4d7564;
+  --red:#b5434d;
+  --font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;min-height:100vh;color:var(--txt);font-family:var(--font);line-height:1.5;
+  background:radial-gradient(850px 500px at 50% -125px,rgba(179,224,182,.57),transparent 75%),
+    radial-gradient(550px 550px at 98% 33%,rgba(217,235,205,.5),transparent 74%),
+    linear-gradient(180deg,#f9fcf7 0%,var(--bg) 54%,#f8fbf5 100%);
+}
+body:before{
+  content:"";position:fixed;inset:0;pointer-events:none;
+  background-image:radial-gradient(rgba(46,117,67,.10) .7px,transparent .9px);
+  background-size:24px 24px;mask-image:linear-gradient(#000,transparent 64%);
+}
+button{font:inherit;cursor:pointer}
+button:disabled{opacity:.55;cursor:not-allowed}
+button:focus-visible,a:focus-visible,.drop:focus-visible,summary:focus-visible{outline:2px solid var(--mint);outline-offset:4px}
+::selection{background:#c7e8d0;color:#183b2b}
+.shell{max-width:1000px;margin:0 auto;padding:0 24px}
+.top{height:76px;border-bottom:1px solid var(--line);position:relative;z-index:1;background:rgba(255,255,255,.59);backdrop-filter:blur(16px)}
+.top .shell{height:100%;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:760;letter-spacing:-.65px}
+.brand-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:11px;background:linear-gradient(145deg,#1b7650,#184c37);border:1px solid rgba(16,81,49,.25);box-shadow:0 5px 12px rgba(17,83,46,.16)}
+.brand-icon svg{width:23px;height:23px}
+.brand-icon svg path:first-child{stroke:#b8f5cd}
+.brand-icon svg path:last-child{stroke:#fff}
+.brand em{font-style:normal;color:var(--mint)}
+.top-note{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:8px}
+.top-note i{width:7px;height:7px;border-radius:100%;background:#2eaa6c;box-shadow:0 0 0 4px #dff4e3}
+main{padding-bottom:100px}
+.hero{text-align:center;padding:91px 0 48px}
+.eyebrow{font-size:11px;font-weight:780;letter-spacing:2px;color:var(--mint);text-transform:uppercase;margin:0 0 17px}
+.hero h1{font-size:clamp(42px,6.4vw,74px);line-height:1.08;letter-spacing:-.06em;margin:0 0 20px;font-weight:780}
+.hero h1 span{background:linear-gradient(100deg,#1d8051 4%,#3a9966 55%,#75a866);background-clip:text;-webkit-background-clip:text;color:transparent}
+.hero .sub{font-size:17px;color:var(--mut);max-width:580px;margin:0 auto;line-height:1.65}
+.hero .sub strong{color:var(--txt);font-weight:650}
+.drop{
+  max-width:780px;min-height:260px;margin:0 auto;border:1.5px dashed #8ebfa0;border-radius:24px;
+  background:radial-gradient(360px 230px at 50% 5%,rgba(224,246,225,.80),transparent 95%),#fff;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  padding:32px 24px;cursor:pointer;transition:border-color .2s,background .2s,transform .2s,box-shadow .2s;
+  box-shadow:0 2px 3px rgba(15,67,37,.025),0 25px 65px rgba(39,97,54,.09);
+}
+.drop:hover,.drop.over{border-color:#298e59;background:radial-gradient(380px 230px at 50% 0%,rgba(210,241,213,.9),transparent 95%),#fff;box-shadow:0 22px 70px rgba(39,97,54,.14)}
+.drop.over{transform:scale(1.01)}
+.drop-icon{width:56px;height:56px;border:1px solid #c2e4ca;border-radius:17px;display:grid;place-items:center;color:var(--mint);background:#eaf7eb;margin-bottom:17px;box-shadow:0 8px 23px rgba(26,109,62,.08)}
+.drop-icon svg{width:27px;height:27px}
+.drop h2{font-size:21px;letter-spacing:-.45px;margin:0 0 7px}
+.drop p{color:var(--mut);font-size:14px;margin:0 0 18px}
+.pick{border:1px solid #176c42;background:#177b4b;color:#fff;border-radius:11px;padding:11px 21px;font-weight:750;box-shadow:0 8px 20px rgba(22,111,68,.20);transition:transform .15s,background .15s,box-shadow .15s}
+.pick:hover{background:#11683f;transform:translateY(-1px);box-shadow:0 10px 24px rgba(22,111,68,.24)}
+.drop small{font-size:11.5px;color:var(--soft);margin-top:14px}
+.trust{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:26px 0 0;color:var(--mut);font-size:12px}
+.trust span{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.72);border:1px solid var(--line);border-radius:999px;padding:7px 12px}
+.trust svg{width:15px;height:15px;color:#218c57;flex:none}
+.results{max-width:780px;margin:55px auto 0;scroll-margin-top:24px}
+.section-title{display:flex;align-items:center;gap:12px;margin:0 0 15px}
+.section-title h2{font-size:20px;letter-spacing:-.5px;margin:0}
+.count{font-size:11px;color:#126d40;background:#e1f4e5;border:1px solid #c2e7cb;padding:2px 8px;border-radius:99px}
+.section-title .spacer{flex:1}
+.text-btn{border:0;background:none;color:var(--mut);padding:6px 2px;font-size:12px}
+.text-btn:hover{color:var(--txt)}
+.list{display:grid;gap:10px}
+.file{border:1px solid var(--line);background:rgba(255,255,255,.93);border-radius:17px;padding:13px 16px;display:flex;align-items:center;gap:16px;min-width:0;transition:border-color .15s,box-shadow .15s;box-shadow:0 4px 16px rgba(39,97,54,.035)}
+.file:hover{border-color:var(--line2);box-shadow:0 6px 22px rgba(39,97,54,.07)}
+.thumb{width:61px;height:61px;object-fit:cover;border-radius:10px;background:#eaf2e8;flex:none;border:1px solid var(--line)}
+.file-data{min-width:0;flex:1}
+.filename{font-size:14px;font-weight:680;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.details{font-size:12px;color:var(--mut);margin-top:2px}
+.status{font-size:11.5px;color:#177b4b;margin-top:5px;display:flex;gap:5px;align-items:center}
+.status.working{color:var(--lav)}
+.status.error{color:var(--red)}
+.status svg{width:14px;height:14px;flex:none}
+.file-actions{display:flex;align-items:center;gap:8px;flex:none}
+.mini{border:1px solid #bfdfc7;border-radius:9px;background:#e9f6ec;color:#176c42;font-weight:750;font-size:12px;padding:8px 12px}
+.mini:hover{background:#d6efdc}
+.icon-btn{border:0;background:none;color:#7e9686;width:29px;height:32px;font-size:21px;line-height:1;border-radius:7px}
+.icon-btn:hover{color:var(--red);background:#fcecee}
+.progress{width:100%;height:3px;background:#e5eee4;border-radius:3px;margin-top:9px;overflow:hidden}
+.progress:before{content:"";display:block;width:35%;height:100%;background:#3b9c6a;border-radius:3px;animation:slide 1s ease-in-out infinite alternate}
+@keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+.bottom-actions{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin-top:15px}
+.download-all{border:1px solid #176c42;background:#177b4b;color:#fff;font-weight:750;padding:10px 18px;border-radius:10px;box-shadow:0 6px 20px rgba(22,111,68,.13)}
+.download-all:hover{background:#11683f}
+footer{border-top:1px solid var(--line);color:var(--soft);font-size:12px;text-align:center;padding:21px 24px 28px;background:rgba(255,255,255,.38)}
+.toast-stack{position:fixed;z-index:30;bottom:22px;right:22px;max-width:min(370px,calc(100% - 44px));display:grid;gap:8px}
+.toast{background:#fff;border:1px solid var(--line2);border-left:3px solid var(--mint);border-radius:10px;padding:11px 14px;box-shadow:0 14px 44px rgba(29,84,45,.16);font-size:12.5px}
+.toast.warn{border-left-color:#c98c32}
+.toast.err{border-left-color:var(--red)}
+.toast.out{opacity:0;transform:translateX(12px);transition:.3s}
+.hidden{display:none!important}
+@media(max-width:600px){
+  .shell{padding:0 17px}.top{height:68px}.hero{padding:66px 0 35px}.hero .sub{font-size:15px}
+  .drop{min-height:255px;padding:25px 15px}.trust{gap:8px;font-size:11px}.trust span{padding:6px 9px}
+  .results{margin-top:42px}.file{padding:11px;gap:10px}.thumb{width:49px;height:49px}
+  .file-actions{gap:2px}.mini{font-size:11px;padding:7px 9px}.details{font-size:11px}.status{font-size:10.5px}.bottom-actions{justify-content:center}
+}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<header class="top"><div class="shell"><div class="brand"><span class="brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke="#69dec6" stroke-linejoin="round" d="m12 2 8 3.7v5.4c0 5.5-3.2 8.7-8 11-4.8-2.3-8-5.5-8-11V5.7L12 2Z"/><path stroke="#f2f7fb" stroke-linecap="round" stroke-linejoin="round" d="m8.5 12 2.4 2.4 4.8-5"/></svg></span>Meta<em>Clean</em></div><div class="top-note"><i></i> Private by design</div></div></header>
+<main class="shell">
+  <section class="hero" aria-labelledby="title"><p class="eyebrow">A cleaner way to share</p><h1 id="title">Your image.<br><span>Nothing extra.</span></h1><p class="sub">Remove hidden metadata and <strong>AI/provenance tags automatically</strong>. No settings to figure out. No uploads. Just a clean copy, ready to share.</p></section>
+  <section class="drop" id="drop" role="button" tabindex="0" aria-label="Choose images or drop them here">
+    <span class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></span>
+    <h2>Drop images here</h2><p>or choose files from your device</p><button class="pick" id="browse" type="button">Choose images</button><small>JPEG, PNG, WebP, GIF, SVG &amp; other browser-readable images · up to 50 MB each</small>
+  </section>
+  <div class="trust" aria-label="Privacy and processing details"><span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>AI tags always removed</span><span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>Images stay on this device</span><span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>Safe, generic download names</span></div>
+  <section class="results hidden" id="results" aria-label="Cleaned images"><div class="section-title"><h2>Your images</h2><span class="count" id="count">0</span><span class="spacer"></span><button class="text-btn" type="button" id="clear">Clear all</button></div><div class="list" id="list"></div><div class="bottom-actions"><button class="download-all hidden" type="button" id="zip">Download all as ZIP ↓</button></div></section>
+
+</main>
+<footer>One page. No account. No tracking. Your photos are never uploaded.</footer>
+<div class="toast-stack" id="toasts" role="status" aria-live="polite"></div>
+<input id="fileIn" type="file" accept="image/*,.tif,.tiff,.avif,.heic,.heif,.svg" multiple hidden>
+<script>
+"use strict";
+"use strict";
+/* ============================== utils ============================== */
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const te=new TextEncoder(), td=new TextDecoder("utf-8",{fatal:false}), tdL=new TextDecoder("iso-8859-1");
+function fmtBytes(n){if(n==null||isNaN(n))return"–";if(n<1024)return n+" B";const u=["KB","MB","GB"];let i=-1,v=n;do{v/=1024;i++;}while(v>=1024&&i<u.length-1);return v.toFixed(v>=100?0:v>=10?1:2)+" "+u[i];}
+function str4(b,o){return String.fromCharCode(b[o]||0,b[o+1]||0,b[o+2]||0,b[o+3]||0);}
+function ascii(b,o,len){let s="";const e=Math.min(b.length,o+len);for(let i=o;i<e;i++){const c=b[i];if(c===0)break;s+=String.fromCharCode(c);}return s;}
+function u16(b,o,le){return le?b[o]|(b[o+1]<<8):(b[o]<<8)|b[o+1];}
+function u32(b,o,le){return le?(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0:(((b[o]<<24)|(b[o+1]<<16)|(b[o+2]<<8)|b[o+3])>>>0);}
+function concat(arr){let n=0;for(const a of arr)n+=a.length;const o=new Uint8Array(n);let p=0;for(const a of arr){o.set(a,p);p+=a.length;}return o;}
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC_T[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function fnv(b){let h=0x811c9dc5;for(let i=0;i<b.length;i++){h^=b[i];h=Math.imul(h,0x01000193);}return (h>>>0).toString(16).padStart(8,"0");}
+function toast(msg,type){const t=document.createElement("div");t.className="toast "+(type||"");t.innerHTML=msg;$("#toasts").appendChild(t);setTimeout(()=>{t.classList.add("out");setTimeout(()=>t.remove(),350);},3600);}
+const uid=(()=>{let i=0;return()=>"f"+(++i)+Date.now().toString(36);})();
+
+/* ============================== state ============================== */
+const S={files:[],busy:false,
+  opts:{gps:true,camera:true,time:true,author:true,ai:true,xmp:true,thumb:true,text:true,orient:true,keepICC:false,format:"original",quality:.92},
+  };
+
+/* ============================== TIFF / EXIF ============================== */
+const T_SIZES={1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8,12:8,13:4,16:8,18:8};
+const TAG_NAMES={0xFE:"NewSubfileType",0xFF:"SubfileType",0x100:"ImageWidth",0x101:"ImageLength",0x102:"BitsPerSample",0x103:"Compression",0x106:"PhotometricInterp",0x10E:"ImageDescription",0x10F:"Make",0x110:"Model",0x111:"StripOffsets",0x112:"Orientation",0x115:"SamplesPerPixel",0x116:"RowsPerStrip",0x117:"StripByteCounts",0x11A:"XResolution",0x11B:"YResolution",0x11C:"PlanarConfig",0x128:"ResolutionUnit",0x131:"Software",0x132:"DateTime",0x13B:"Artist",0x13E:"WhitePoint",0x13F:"PrimaryChromaticities",0x201:"ThumbOffset",0x202:"ThumbLength",0x211:"YCbCrCoefficients",0x212:"YCbCrSubSampling",0x213:"YCbCrPositioning",0x214:"ReferenceBlackWhite",0x8298:"Copyright",0x829A:"ExposureTime",0x829D:"FNumber",0x8769:"ExifIFD →",0x8825:"GPSInfo →",0x8822:"ExposureProgram",0x8827:"ISO",0x8830:"SensitivityType",0x8832:"RecommendedExposure",0x9000:"ExifVersion",0x9003:"DateTimeOriginal",0x9004:"DateTimeDigitized",0x9010:"OffsetTime",0x9011:"OffsetTimeOriginal",0x9012:"OffsetTimeDigitized",0x9101:"ComponentsConfig",0x9102:"CompressedBPP",0x9201:"ShutterSpeed",0x9202:"ApertureValue",0x9203:"Brightness",0x9204:"ExposureBias",0x9205:"MaxAperture",0x9206:"SubjectDistance",0x9207:"MeteringMode",0x9208:"LightSource",0x9209:"Flash",0x920A:"FocalLength",0x927C:"MakerNote",0x9286:"UserComment",0x9290:"SubSecTime",0x9291:"SubSecTimeOrig",0x9292:"SubSecTimeDig",0xA000:"FlashpixVersion",0xA001:"ColorSpace",0xA002:"PixelXDimension",0xA003:"PixelYDimension",0xA004:"RelatedSoundFile",0xA005:"InteropIFD →",0xA20E:"FocalPlaneXRes",0xA20F:"FocalPlaneYRes",0xA210:"FocalPlaneUnit",0xA214:"SubjectLocation",0xA217:"SensingMethod",0xA300:"FileSource",0xA301:"SceneType",0xA401:"CustomRendered",0xA402:"ExposureMode",0xA403:"WhiteBalance",0xA404:"DigitalZoomRatio",0xA405:"FocalLength35mm",0xA406:"SceneCaptureType",0xA407:"GainControl",0xA408:"Contrast",0xA409:"Saturation",0xA40A:"Sharpness",0xA40C:"SubjectDistRange",0xA420:"ImageUniqueID",0xA430:"CameraOwner",0xA431:"BodySerialNumber",0xA432:"LensSpecification",0xA433:"LensMake",0xA434:"LensModel",0xA435:"LensSerialNumber",0x9C9B:"XPTitle",0x9C9C:"XPComment",0x9C9D:"XPAuthor",0x9C9E:"XPKeywords",0x9C9F:"XPSubject",0xC4A5:"PrintIM",0xEA1C:"Padding"};
+const GPS_NAMES={0:"GPSVersionID",1:"GPSLatRef",2:"GPSLatitude",3:"GPSLonRef",4:"GPSLongitude",5:"GPSAltRef",6:"GPSAltitude",7:"GPSTimeStamp",12:"GPSMapDatum",16:"GPSImgDirectionRef",17:"GPSImgDirection",18:"GPSDestLatRef",19:"GPSDestLat",20:"GPSDestLonRef",21:"GPSDestLon",23:"GPSDestDistRef",24:"GPSDestDistance",29:"GPSDateStamp",30:"GPSDifferential"};
+function tagCat(ifd,tag){
+  if(tag===0x8769||tag===0x8825||tag===0xA005)return "sys";
+  if(ifd==="gps")return "gps";
+  if(tag===0x0112)return "orient";
+  if([0x0132,0x9003,0x9004,0x9010,0x9011,0x9012,0x9290,0x9291,0x9292].includes(tag))return "time";
+  if([0x010E,0x0131,0x013B,0x8298,0x9C9B,0x9C9C,0x9C9D,0x9C9E,0x9C9F,0x9286].includes(tag))return "author";
+  return "camera";
+}
+const CAT_LABEL={gps:"GPS",camera:"Camera",time:"Time",author:"Author",orient:"Orient",sys:"Link"};
+function parseTIFF(tiff){
+  try{
+    if(tiff.length<8)return null;
+    const le=tiff[0]===0x49&&tiff[1]===0x49?true:(tiff[0]===0x4D&&tiff[1]===0x4D?false:null);
+    if(le===null)return null;
+    if(u16(tiff,2,le)!==42)return null;
+    const first=u32(tiff,4,le);
+    const dv=(d,o,l)=>new DataView(d.buffer,d.byteOffset+o,l);
+    function entry(p){
+      const tag=u16(tiff,p,le),type=u16(tiff,p+2,le),count=u32(tiff,p+4,le);
+      const sz=T_SIZES[type]||1,n=count*sz;
+      let data;
+      if(n<=4)data=tiff.slice(p+8,p+8+n);
+      else{const off=u32(tiff,p+8,le);if(off+n>tiff.length+1)return null;data=tiff.slice(off,Math.min(off+n,tiff.length));}
+      return{tag,type,count,data};
+    }
+    function ifd(off){
+      if(off==null||off+2>tiff.length)return{entries:[],next:0};
+      const n=Math.min(u16(tiff,off,le),512),entries=[];
+      for(let i=0;i<n;i++){const p=off+2+i*12;if(p+12>tiff.length)break;const e=entry(p);if(e)entries.push(e);}
+      const next=(off+2+n*12+4<=tiff.length)?u32(tiff,off+2+n*12,le):0;
+      return{entries,next};
+    }
+    const i0=ifd(first);
+    let exif=[],gps=[],interop=[];
+    for(const e of i0.entries){
+      if((e.tag===0x8769||e.tag===0x8825||e.tag===0xA005)&&e.type===4&&e.data.length>=4){
+        const off=dv(e.data,0,4).getUint32(0,le);
+        const sub=ifd(off).entries;
+        e.sub=sub;e.subName=e.tag===0x8769?"exif":(e.tag===0x8825?"gps":"interop");
+        if(e.tag===0x8769)exif=sub;else if(e.tag===0x8825)gps=sub;else interop=sub;
+      }
+    }
+    let ifd1=[],thumbBytes=null;
+    if(i0.next){ifd1=ifd(i0.next).entries;
+      let to=null,tl=null;
+      for(const e of ifd1){if(e.tag===0x0201&&e.data.length>=4)to=dv(e.data,0,4).getUint32(0,le);if(e.tag===0x0202&&e.data.length>=4)tl=dv(e.data,0,4).getUint32(0,le);}
+      if(to!=null&&tl!=null&&to+tl<=tiff.length&&tl>0)thumbBytes=tiff.slice(to,to+tl);
+    }
+    return{le,ifd0:i0.entries,exif,gps,interop,ifd1,thumbBytes};
+  }catch(e){return null;}
+}
+function fmtVal(e,le){
+  try{
+    const d=e.data,dv=new DataView(d.buffer,d.byteOffset,d.byteLength);
+    const cv=(t)=>{if(t.length>180)return t.slice(0,180)+"…";return t;};
+    if(e.type===2)return cv(tdL.decode(d).replace(/\0+$/,"").replace(/\0/g," "));
+    if(e.type===7){
+      if(e.tag===0x9286&&d.length>8)return cv(td.decode(d.slice(8)).replace(/\0+$/,"").trim());
+      if(e.tag===0x9000||e.tag===0xA000)return tdL.decode(d).replace(/\0/g,"");
+      if(d.length<=48)return Array.from(d.slice(0,48)).map(x=>x.toString(16).padStart(2,"0")).join(" ")+(d.length>48?" …":"");
+      return d.length+" bytes of binary data";
+    }
+    if(e.type===3){const a=[];for(let i=0;i<Math.min(e.count,8);i++)a.push(dv.getUint16(i*2,le));return a.join(", ")+(e.count>8?" …(+"+(e.count-8)+")":"");}
+    if(e.type===4){const a=[];for(let i=0;i<Math.min(e.count,8);i++)a.push(dv.getUint32(i*4,le));return a.join(", ")+(e.count>8?" …":"");}
+    if(e.type===9){const a=[];for(let i=0;i<Math.min(e.count,8);i++)a.push(dv.getInt32(i*4,le));return a.join(", ");}
+    if(e.type===5||e.type===10){const a=[];for(let i=0;i<Math.min(e.count,4);i++){const n=e.type===5?dv.getUint32(i*8,le):dv.getInt32(i*8,le),dd=e.type===5?dv.getUint32(i*8+4,le):dv.getInt32(i*8+4,le);a.push(dd!==0?n+"/"+dd+" ("+(n/dd).toPrecision(5)+")":n+"/"+dd);}return a.join(", ");}
+    if(e.type===12){const a=[];for(let i=0;i<Math.min(e.count,6);i++)a.push(dv.getFloat64(i*8,le).toPrecision(6));return a.join(", ");}
+    return d.length+" bytes";
+  }catch(err){return "(unreadable)";}
+}
+function ratDec(d,le){try{const dv=new DataView(d.buffer,d.byteOffset,d.byteLength);const out=[];for(let i=0;i+8<=d.byteLength;i+=8){const n=dv.getUint32(i,le),dd=dv.getUint32(i+4,le);out.push(dd?n/dd:0);}return out;}catch(e){return[];}}
+function gpsDecimal(parsed){
+  try{
+    const g={};for(const e of parsed.gps)g[e.tag]=e;
+    if(!g[2]||!g[4])return null;
+    const la=ratDec(g[2].data,parsed.le),lo=ratDec(g[4].data,parsed.le);
+    if(la.length<3||lo.length<3)return null;
+    let lat=la[0]+la[1]/60+la[2]/3600,lon=lo[0]+lo[1]/60+lo[2]/3600;
+    const lar=g[1]?tdL.decode(g[1].data).trim().toUpperCase():"N",lor=g[3]?tdL.decode(g[3].data).trim().toUpperCase():"E";
+    if(lar==="S")lat=-lat;if(lor==="W")lon=-lon;
+    let alt=null;if(g[6]){const a=ratDec(g[6].data,parsed.le);if(a.length)alt=a[0];}
+    return{lat,lon,alt};
+  }catch(e){return null;}
+}
+function orientationOf(parsed){for(const e of parsed.ifd0){if(e.tag===0x0112&&e.data.length>=2)return new DataView(e.data.buffer,e.data.byteOffset).getUint16(0,parsed.le);}return 1;}
+
+/* ---- TIFF rebuild (surgical) ---- */
+function buildTIFF(le,ifd0,ifd1,thumb){
+  const subs=[];ifd0.forEach(e=>{if(e.sub&&e.sub.length)subs.push(e);});
+  let off=8+2+ifd0.length*12+4;
+  const b0=8;subs.forEach(e=>{e._o=off;off+=2+e.sub.length*12+4;});
+  let i1o=0;if(ifd1&&ifd1.length){i1o=off;off+=2+ifd1.length*12+4;}
+  const datas=[];
+  const reg=e=>{if(!e.sub&&e.data.length>4){e._d=off;const l=e.data.length+(e.data.length%2);datas.push(e);off+=l;}};
+  ifd0.forEach(reg);subs.forEach(s=>s.sub.forEach(reg));if(ifd1)ifd1.forEach(reg);
+  let tho=0;if(thumb&&thumb.length){tho=off;off+=thumb.length;}
+  const out=new Uint8Array(off),dv=new DataView(out.buffer);
+  out[0]=le?0x49:0x4D;out[1]=le?0x49:0x4D;dv.setUint16(2,42,le);dv.setUint32(4,b0,le);
+  const vb=new DataView(new ArrayBuffer(4));
+  function wIFD(arr,at,next){dv.setUint16(at,arr.length,le);arr.forEach((e,i)=>{const p=at+2+i*12;dv.setUint16(p,e.tag,le);dv.setUint16(p+2,e.type,le);dv.setUint32(p+4,e.count,le);if(e.sub)dv.setUint32(p+8,e._o,le);else if(e.data.length<=4){out.set(e.data,p+8);}else dv.setUint32(p+8,e._d,le);});dv.setUint32(at+2+arr.length*12,next,le);}
+  wIFD(ifd0,b0,i1o);subs.forEach(e=>wIFD(e.sub,e._o,0));if(ifd1&&ifd1.length)wIFD(ifd1,i1o,0);
+  datas.forEach(e=>out.set(e.data,e._d));
+  if(ifd1&&ifd1.length){ifd1.forEach((e,i)=>{const p=i1o+2+i*12+8;if(e.tag===0x0201)dv.setUint32(p,tho,le);if(e.tag===0x0202)dv.setUint32(p,thumb?thumb.length:0,le);});}
+  if(thumb&&thumb.length)out.set(thumb,tho);
+  return out;
+}
+function filterExif(p,o){
+  const keep=(ifd,e)=>{
+    const c=tagCat(ifd,e.tag);
+    if(c==="orient"){const v=e.data.length>=2?new DataView(e.data.buffer,e.data.byteOffset).getUint16(0,p.le):1;return o.orient&&v!==1;}
+    if(c==="gps")return !o.gps;
+    if(c==="time")return !o.time;
+    if(c==="author")return !o.author;
+    return !o.camera;
+  };
+  const f=(arr,ifd)=>{const r=[];for(const e of arr){if(e.sub){const ks=f(e.sub,e.subName);if(ks.length)r.push(Object.assign({},e,{sub:ks}));}else if(keep(ifd,e))r.push(Object.assign({},e));}return r;};
+  const ifd0=f(p.ifd0,"ifd0");
+  let ifd1=null,thumb=null;
+  if(p.ifd1&&p.ifd1.length&&!o.thumb&&p.thumbBytes&&p.thumbBytes.length){
+    ifd1=p.ifd1.map(e=>{const c=Object.assign({},e,{data:e.data.slice()});if(c.tag===0x0201||c.tag===0x0202){c.type=4;c.count=1;c.data=new Uint8Array(4);}return c;});
+    thumb=p.thumbBytes;
+  }
+  return{ifd0,ifd1,thumb};
+}
+
+/* ============================== JPEG ============================== */
+function scanJPEG(b){
+  const segs=[],n=b.length;
+  if(n<4||b[0]!==0xFF||b[1]!==0xD8)return{segs,err:"bad"};
+  segs.push({m:0xD8,off:0,total:2,kind:"core",name:"SOI",detail:"Start of image"});
+  let p=2,dims=null;
+  const idOf=pay=>ascii(pay,0,40);
+  while(p+1<n){
+    if(b[p]!==0xFF)return{segs,dims,err:"Invalid JPEG marker boundary"};
+    const m=b[p+1];
+    if(m===0xFF){p++;continue;}
+    if(m===0x00){p+=2;continue;}
+    const off=p;
+    if(m===0xD8)return{segs,dims,err:"Unexpected nested JPEG start"};
+    if(m===0xD9){segs.push({m,off,total:2,kind:"core",name:"EOI",detail:"End of image"});p+=2;
+      if(p<n)segs.push({m:-2,off:p,total:n-p,kind:"trailing",name:"Trailing payload",detail:"Data after the end-of-image marker"});
+      break;}
+    if(m===0x01||(m>=0xD0&&m<=0xD7)){segs.push({m,off,total:2,kind:"core",name:m===1?"TEM":"RST"+(m-0xD0),detail:"Marker"});p+=2;continue;}
+    if(p+3>=n)return{segs,dims,err:"Truncated JPEG marker"};
+    const len=(b[p+2]<<8)|b[p+3];
+    if(len<2)return{segs,dims,err:"Invalid JPEG marker length"};
+    const total=2+len;
+    if(p+total>n)return{segs,dims,err:"Truncated JPEG marker data"};
+    const pay=b.subarray(p+4,p+total);
+    let kind="core",name="MKR",detail="";
+    const hx="0xFF"+m.toString(16).toUpperCase().padStart(2,"0");
+    if(m>=0xE0&&m<=0xEF){
+      const id=idOf(pay);
+      if(m===0xE0){kind="jfif";name="APP0 · JFIF";detail=id+(pay.length>=14&&(pay[12]||pay[13])?" · has thumbnail!":"");}
+      else if(m===0xE1){
+        if(id.startsWith("Exif")){kind="exif";name="APP1 · EXIF";detail="TIFF camera profile";}
+        else if(id.indexOf("http://ns.adobe.com/xap/1.0/")===0){kind="xmp";name="APP1 · XMP";detail="Adobe edit metadata";}
+        else if(/xmp/i.test(id)){kind="xmp";name="APP1 · XMP-like";detail=id.slice(0,34);}
+        else{kind="otherapp";name="APP1 · other";detail=id.slice(0,34);}
+      }
+      else if(m===0xE2){
+        if(id.startsWith("ICC_PROFILE")){kind="icc";name="APP2 · ICC";detail="Color profile";}
+        else if(id.indexOf("xmp/extension")>=0||id.indexOf("http://ns.adobe.com/xmp/extension/")===0){kind="extxmp";name="APP2 · ExtendedXMP";detail="Large XMP payload";}
+        else if(id.startsWith("MPF")){kind="mpf";name="APP2 · MPF";detail="Multi-picture (bursts/3D)";}
+        else{kind="otherapp";name="APP2 · other";detail=id.slice(0,34);}
+      }
+      else if(m===0xEB){
+        const s=tdL.decode(pay.slice(0,Math.min(pay.length,300))).toLowerCase();
+        if((pay[0]===0x4A&&pay[1]===0x50&&pay[2]===0x00)||s.indexOf("jumb")>=0||s.indexOf("c2pa")>=0||s.indexOf("contentcredentials")>=0||s.indexOf("content credentials")>=0){kind="c2pa";name="APP11 · JUMBF/C2PA";detail="Potential provenance manifest";}
+        else{kind="otherapp";name="APP11 · other";detail="JUMBF data";}
+      }
+      else if(m===0xED){
+        if(id.startsWith("Photoshop 3.0")){kind="psiptc";name="APP13 · Photoshop/IPTC";detail="Captions, keywords, IRBs";}
+        else if(id.startsWith("Adobe_Photoshop")){kind="otherapp";name="APP13 · Adobe";detail="Ducky/settings";}
+        else{kind="otherapp";name="APP13 · other";detail=id.slice(0,34);}
+      }
+      else if(m===0xEE){kind="adobe";name="APP14 · Adobe";detail="Color transform info";}
+      else{kind="otherapp";name="APP"+(m-0xE0)+" · vendor";detail=id.slice(0,34)||"proprietary";}
+    }
+    else if(m===0xFE){kind="com";name="COM";detail="Comment: "+tdL.decode(pay.slice(0,80)).replace(/\0/g,"");}
+    else if([0xC0,0xC1,0xC2,0xC3,0xC5,0xC6,0xC7,0xC9,0xCA,0xCB,0xCD,0xCE,0xCF].includes(m)){
+      kind="core";name="SOF"+(m-0xC0)+(m===0xC2?" · Progressive":"");detail="Frame header";
+      if(pay.length>=7){dims={w:(pay[3]<<8)|pay[4],h:(pay[1]<<8)|pay[2]};detail+=" · "+dims.w+"×"+dims.h;}
+    }
+    else if(m===0xC4){kind="core";name="DHT";detail="Huffman tables";}
+    else if(m===0xCC){kind="core";name="DAC";detail="Arithmetic coding";}
+    else if(m===0xDB){kind="core";name="DQT";detail="Quantization tables";}
+    else if(m===0xDD){kind="core";name="DRI";detail="Restart interval";}
+    else if(m===0xDA){kind="core";name="SOS";detail="Start of scan";
+      segs.push({m,off,total,pay,kind,name,detail:hx,hex:hx});p+=total;
+      // Parse the entropy stream to the next real marker. FF00 is byte-stuffed;
+      // restart markers stay in the copied scan. A later APP marker is inspected.
+      let next=-1;
+      for(let q=p;q+1<n;q++){
+        if(b[q]!==0xFF)continue;
+        const k=b[q+1];
+        if(k===0x00||k>=0xD0&&k<=0xD7){q++;continue;}
+        if(k===0xFF)continue;
+        next=q;break;
+      }
+      if(next<0)return{segs,dims,err:"JPEG scan has no ending marker"};
+      segs.push({m:-1,off:p,total:next-p,kind:"core",name:"Scan data",detail:"Compressed scan bytes (copied verbatim)",hex:"—"});
+      p=next;continue;
+    }
+    else{kind="core";name="Marker "+hx;detail="Preserved";}
+    segs.push({m,off,total,pay,kind,name,detail,hex:hx});
+    p+=total;
+  }
+  return{segs,dims};
+}
+function minJFIF(){return new Uint8Array([0xFF,0xE0,0x00,0x10,0x4A,0x46,0x49,0x46,0x00,0x01,0x01,0x00,0x00,0x01,0x00,0x01,0x00,0x00]);}
+function exifSeg(tiff){
+  const head=te.encode("Exif\0\0"),len=head.length+tiff.length+2,out=new Uint8Array(2+len);
+  out[0]=0xFF;out[1]=0xE1;out[2]=(len>>8)&255;out[3]=len&255;out.set(head,4);out.set(tiff,4+head.length);return out;
+}
+function cleanJPEG(bytes,o){
+  const {segs,err}=scanJPEG(bytes);
+  if(err||!segs.some(s=>s.m===-1)||!segs.some(s=>s.m===0xD9))throw new Error(err||"Incomplete JPEG image");
+  const out=[bytes.subarray(0,2)],log=[];let keptOrient=false;const notes=[];
+  for(const s of segs){
+    if(s.m===0xD8)continue;
+    if(s.m===-1){out.push(bytes.subarray(s.off,s.off+s.total));log.push({kind:"core",action:"keep",size:s.total,name:"Scan data"});continue;}
+    if(s.m===-2){log.push({kind:"trailing",action:"remove",size:s.total,name:"Trailing payload"});continue;}
+    const raw=bytes.subarray(s.off,s.off+s.total);
+    const keep=()=>{out.push(raw);log.push({kind:s.kind,action:"keep",size:s.total,name:s.name});};
+    const drop=()=>{log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});};
+    switch(s.kind){
+      case"core":case"adobe":keep();break;
+      case"jfif":out.push(minJFIF());log.push({kind:s.kind,action:"clean",size:s.total,name:"APP0 · JFIF (normalized)"});break;
+      case"exif":{
+        const t=parseTIFF(s.pay.slice(6));
+        if(!t){if(o.gps&&o.camera&&o.time&&o.author&&o.thumb)drop();else{keep();notes.push("Unparseable EXIF kept as-is");}break;}
+        const f=filterExif(t,o);
+        if(!f.ifd0.length&&!f.ifd1){drop();break;}
+        let seg=exifSeg(buildTIFF(t.le,f.ifd0,f.ifd1,f.thumb));
+        if(seg.length>65535){seg=exifSeg(buildTIFF(t.le,f.ifd0,null,null));
+          if(seg.length>65535){drop();notes.push("EXIF too large — dropped");break;}
+          notes.push("Thumbnail dropped to fit EXIF segment");}
+        out.push(seg);keptOrient=f.ifd0.some(e=>e.tag===0x0112);
+        log.push({kind:s.kind,action:"clean",size:s.total,name:"APP1 · EXIF (rebuilt)"});break;}
+      case"xmp":case"extxmp":case"psiptc":o.xmp?drop():keep();break;
+      case"mpf":o.thumb?drop():keep();break;
+      case"c2pa":drop();break;
+      case"icc":o.keepICC?keep():drop();break;
+      case"com":o.text?drop():keep();break;
+      default:drop();
+    }
+  }
+  return{bytes:concat(out),log,keptOrient,notes,method:"lossless"};
+}
+
+/* ============================== PNG ============================== */
+const PNG_COLOR=new Set(["iCCP","sRGB","gAMA","cHRM","sBIT"]);
+const PNG_KEEP=new Set(["IHDR","PLTE","IDAT","IEND","tRNS","acTL","fcTL","fdAT"]);
+function scanPNG(b,checkCRC=false){
+  const ch=[],n=b.length;
+  if(n<8||![137,80,78,71,13,10,26,10].every((x,i)=>b[i]===x))return{ch,err:"Invalid PNG signature"};
+  let p=8,dims=null;
+  while(p+8<=n){
+    const len=((b[p]<<24)|(b[p+1]<<16)|(b[p+2]<<8)|b[p+3])>>>0;
+    const type=String.fromCharCode(b[p+4],b[p+5],b[p+6],b[p+7]);
+    if(!/^[A-Za-z]{4}$/.test(type))return{ch,dims,err:"Invalid PNG chunk type"};
+    const total=12+len;
+    if(p+total>n)return{ch,dims,err:"Truncated PNG chunk"};
+    if(checkCRC&&crc32(b.subarray(p+4,p+8+len))!==u32(b,p+8+len,false))return{ch,dims,err:"PNG checksum mismatch"};
+    const data=b.subarray(p+8,p+8+len);
+    let kind="other",detail="";
+    if(PNG_KEEP.has(type)){kind="core";}
+    else if(PNG_COLOR.has(type)){kind="color";detail="Color calibration";}
+    else if(type==="eXIf"){kind="exif";detail="EXIF profile";}
+    else if(type==="caBX"){kind="c2pa";detail="Potential JUMBF / Content Credentials";}
+    else if(type==="tIME"){kind="time";detail="Last-modified stamp";}
+    else if(type==="tEXt"||type==="zTXt"||type==="iTXt"){
+      let kw="";for(let i=0;i<Math.min(data.length,80);i++){if(data[i]===0){kw=tdL.decode(data.slice(0,i));break;}}
+      if(type==="iTXt"&&kw==="XML:com.adobe.xmp"){kind="xmp";detail="Embedded XMP packet";}
+      else{kind="text";detail=(kw||"text")+(type==="zTXt"?", compressed":"")+": "+tdL.decode(data.slice(kw.length+1,kw.length+70)).replace(/\0/g," ");}
+    }
+    else{kind=(type[0]===type[0].toLowerCase())?"otherapp":"unsupported";detail=kind==="otherapp"?"Private ancillary":"Unknown critical PNG chunk";}
+    if(type==="IHDR"&&data.length>=8){dims={w:((data[0]<<24)|(data[1]<<16)|(data[2]<<8)|data[3])>>>0,h:((data[4]<<24)|(data[5]<<16)|(data[6]<<8)|data[7])>>>0};detail=dims.w+"×"+dims.h+" · "+detail;}
+    ch.push({type,len,off:p,total,data,kind,name:"chunk "+type,detail});
+    p+=total;
+    if(type==="IEND")break;
+  }
+  return{ch,dims};
+}
+function pngChunk(type,data){
+  const out=new Uint8Array(12+data.length),dv=new DataView(out.buffer);
+  dv.setUint32(0,data.length);for(let i=0;i<4;i++)out[4+i]=type.charCodeAt(i);
+  out.set(data,8);dv.setUint32(8+data.length,crc32(out.subarray(4,8+data.length)));
+  return out;
+}
+function cleanPNG(bytes,o){
+  const {ch,err}=scanPNG(bytes,true);
+  if(err||!ch.some(c=>c.type==="IEND")||!ch.some(c=>c.type==="IDAT"))throw new Error(err||"Incomplete PNG image");
+  if(ch[0]?.type!=="IHDR"||ch.some(c=>c.kind==="unsupported"))throw new Error("Unsupported PNG chunk structure");
+  const out=[bytes.subarray(0,8)],log=[];const notes=[];
+  for(const c of ch){
+    const raw=bytes.subarray(c.off,c.off+c.total);
+    const keep=()=>{out.push(raw);log.push({kind:c.kind,action:"keep",size:c.total,name:c.name});};
+    const drop=()=>{log.push({kind:c.kind,action:"remove",size:c.total,name:c.name});};
+    if(c.kind==="core")keep();
+    else if(c.kind==="color")o.keepICC?keep():drop();
+    else if(c.kind==="exif"){
+      const t=parseTIFF(c.data.slice());
+      if(!t){(o.gps&&o.camera&&o.time&&o.author)?drop():keep();continue;}
+      const f=filterExif(t,o);
+      if(!f.ifd0.length&&!f.ifd1){drop();continue;}
+      const nb=pngChunk("eXIf",buildTIFF(t.le,f.ifd0,f.ifd1,f.thumb));
+      out.push(nb);log.push({kind:c.kind,action:"clean",size:c.total,name:"chunk eXIf (rebuilt)"});
+    }
+    else if(c.kind==="xmp")o.xmp?drop():keep();
+    else if(c.kind==="c2pa")drop();
+    else if(c.kind==="time")o.time?drop():keep();
+    else if(c.kind==="text")o.text?drop():keep();
+    else drop();
+  }
+  return{bytes:concat(out),log,notes,method:"lossless"};
+}
+
+/* ============================== WebP ============================== */
+function scanWEBP(b){
+  const n=b.length;
+  if(n<12||str4(b,0)!=="RIFF"||str4(b,8)!=="WEBP")return{ch:[],err:"Invalid WebP header"};
+  const declared=u32(b,4,true),end=8+declared;
+  if(declared<4||end>n)return{ch:[],err:"Truncated WebP RIFF container"};
+  const ch=[];let p=12,dims=null,vp8x=null;
+  while(p+8<=end){
+    const four=str4(b,p),size=u32(b,p+4,true),pad=size%2,total=8+size+pad;
+    if(p+total>end)return{ch,dims,err:"Truncated WebP chunk"};
+    const data=b.subarray(p+8,p+8+size);
+    let kind="core",detail="";
+    if(four==="VP8X"){vp8x=data;const fl=data.length?data[0]:0;
+      detail="Flags"+(fl&0x20?" +ICC":"")+(fl&0x08?" +EXIF":"")+(fl&0x04?" +XMP":"")+(fl&0x10?" +Alpha":"")+(fl&0x02?" +Anim":"");
+      if(data.length>=10)dims={w:1+(data[4]|(data[5]<<8)|(data[6]<<16)),h:1+(data[7]|(data[8]<<8)|(data[9]<<16))};
+    }
+    else if(four==="VP8 "&&data.length>10&&data[3]===0x9D&&data[4]===0x01&&data[5]===0x2A){dims={w:data[6]|(data[7]<<8),h:data[8]|(data[9]<<8)};detail=dims.w+"×"+dims.h+" lossy";}
+    else if(four==="VP8L"&&data.length>5){const bits=data[1]|(data[2]<<8)|(data[3]<<16)|(data[4]<<24);dims={w:(bits&0x3FFF)+1,h:((bits>>14)&0x3FFF)+1};detail=dims.w+"×"+dims.h+" lossless";}
+    else if(four==="EXIF"){kind="exif";detail="EXIF profile";}
+    else if(four==="JUMB"||four==="C2PA"){kind="c2pa";detail="Content Credentials manifest";}
+    else if(four==="XMP "){kind="xmp";detail="XMP packet";}
+    else if(four==="ICCP"){kind="icc";detail="Color profile";}
+    else if(["VP8 ","VP8L","ALPH","ANIM","ANMF"].includes(four))detail="Media data";
+    else{kind="otherapp";detail="Unrecognized auxiliary chunk";}
+    ch.push({four,size,off:p,total,data,kind,name:"chunk "+four.trim(),detail});
+    p+=total;
+  }
+  if(p!==end)return{ch,dims,err:"Invalid WebP chunk boundary"};
+  return{ch,dims,vp8x};
+}
+function cleanWEBP(bytes,o){
+  const{ch,err}=scanWEBP(bytes);
+  if(err||!ch.some(c=>["VP8 ","VP8L","ANMF"].includes(c.four)))throw new Error(err||"Incomplete WebP image");
+  const out=[];const log=[],notes=[];
+  let dropEXIF=false,dropXMP=false,dropICC=false;const rebuilt={};
+  for(const c of ch){
+    if(c.kind==="exif"){
+      const t=parseTIFF(c.data.slice());
+      if(!t){dropEXIF=(o.gps&&o.camera&&o.time&&o.author);}
+      else{const f=filterExif(t,o);
+        if(!f.ifd0.length&&!f.ifd1)dropEXIF=true;
+        else rebuilt[c.off]=buildTIFF(t.le,f.ifd0,f.ifd1,f.thumb);}
+    }
+    if(c.kind==="xmp"&&o.xmp)dropXMP=true;
+    if(c.kind==="icc"&&!o.keepICC)dropICC=true;
+  }
+  for(const c of ch){
+    const keepRaw=()=>{out.push(bytes.subarray(c.off,c.off+c.total));};
+    const drop=()=>{log.push({kind:c.kind,action:"remove",size:c.total,name:c.name});};
+    if(c.four==="VP8X"){
+      const d=c.data.slice();d[0]=d[0]&~(dropEXIF?0x08:0)&~(dropXMP?0x04:0)&~(dropICC?0x20:0);
+      const nb=new Uint8Array(c.total);nb.set(bytes.subarray(c.off,c.off+8),0);nb.set(d,8);
+      out.push(nb);log.push({kind:"core",action:(dropEXIF||dropXMP||dropICC)?"clean":"keep",size:c.total,name:"chunk VP8X (flags)"});
+    }
+    else if(c.kind==="exif"){
+      if(dropEXIF)drop();
+      else if(rebuilt[c.off]){const d=rebuilt[c.off],pad=d.length%2,nb=new Uint8Array(8+d.length+pad);
+        nb.set(bytes.subarray(c.off,c.off+4),0);new DataView(nb.buffer).setUint32(4,d.length,true);nb.set(d,8);
+        out.push(nb);log.push({kind:c.kind,action:"clean",size:c.total,name:"chunk EXIF (rebuilt)"});}
+      else{keepRaw();log.push({kind:c.kind,action:"keep",size:c.total,name:c.name});}
+    }
+    else if(c.kind==="xmp"&&o.xmp)drop();
+    else if(c.kind==="c2pa")drop();
+    else if(c.kind==="icc"&&!o.keepICC)drop();
+    else if(c.kind==="otherapp")drop();
+    else{keepRaw();log.push({kind:c.kind,action:"keep",size:c.total,name:c.name});}
+  }
+  const riff=new Uint8Array(12);riff.set(bytes.subarray(0,12),0);
+  const body=concat(out);let total=4+body.length;
+  new DataView(riff.buffer).setUint32(4,total,true);
+  return{bytes:concat([riff,body]),log,notes,method:"lossless"};
+}
+
+/* ============================== GIF ============================== */
+function scanGIF(b){
+  const n=b.length,bl=[];
+  if(n<13||str4(b,0)!=="GIF8")return{bl,err:"bad"};
+  const w=b[6]|(b[7]<<8),h=b[8]|(b[9]<<8);
+  bl.push({kind:"core",name:"Header + LSD",detail:w+"×"+h+" · screen",off:0,total:0});
+  let p=13;if(b[10]&0x80)p+=3*(1<<((b[10]&7)+1));
+  bl[0].total=p;
+  const subEnd=x=>{while(x<n){const s=b[x];x++;if(s===0)break;x+=s;}return x;};
+  while(p<n){
+    const t=b[p];
+    if(t===0x21&&p+1<n){const lb=b[p+1];const e=subEnd(p+2+(lb===0xFF||lb===0xFE||lb===0x01||lb===0xF9?(lb===0xF9?6:(lb===0xFF?12:0)):0));
+      let kind="core",name="Extension",detail="";
+      if(lb===0xF9){name="GCE";detail="Frame control";}
+      else if(lb===0xFE){kind="com";name="Comment ext";detail=tdL.decode(b.slice(p+3,Math.min(e,p+90))).replace(/\0/g," ");}
+      else if(lb===0xFF){const id=ascii(b,p+3,11);if(id.indexOf("NETSCAPE2.0")===0){name="NETSCAPE loop";detail="Animation looping";}else{kind="xmp";name="App ext";detail=id||"vendor";}}
+      else if(lb===0x01){name="Plain-text ext";detail="Visible text (kept)";}
+      bl.push({kind,name,detail,off:p,total:e-p});p=e;
+    }
+    else if(t===0x2C){let e=p+10;if(b[p+9]&0x80)e+=3*(1<<((b[p+9]&7)+1));e++;e=subEnd(e);bl.push({kind:"core",name:"Image frame",detail:"Pixels",off:p,total:e-p});p=e;}
+    else if(t===0x3B){bl.push({kind:"core",name:"Trailer",detail:"End",off:p,total:1});p++;break;}
+    else p++;
+  }
+  return{bl,dims:{w,h}};
+}
+function cleanGIF(bytes,o){
+  const{bl}=scanGIF(bytes);
+  if(!bl.some(s=>s.name==="Trailer")||!bl.some(s=>s.name==="Image frame"))throw new Error("Incomplete GIF image");
+  const out=[],log=[];
+  for(const s of bl){
+    const raw=bytes.subarray(s.off,s.off+s.total);
+    if(s.kind==="com"&&o.text)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
+    else if(s.kind==="xmp"&&o.xmp)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
+    else{out.push(raw);log.push({kind:s.kind,action:"keep",size:s.total,name:s.name});}
+  }
+  return{bytes:concat(out),log,notes:[],method:"lossless"};
+}
+
+/* ============================== SVG / fallback ============================== */
+function cleanSVG(bytes){
+  // SVG is executable XML: never pass through malformed documents or active/external content.
+  const s=td.decode(bytes);
+  if(/<!DOCTYPE|<!ENTITY/i.test(s))throw new Error("SVG with DTD/entities cannot be cleaned safely.");
+  const doc=new DOMParser().parseFromString(s,"image/svg+xml");
+  if(doc.querySelector("parsererror")||doc.documentElement.localName!=="svg"||doc.documentElement.namespaceURI!=="http://www.w3.org/2000/svg")throw new Error("Invalid SVG document.");
+  let n=0;
+  const blocked=new Set(["script","foreignObject","metadata","title","desc","style","link","animate","animateTransform","animateMotion","set","a","image","feImage","video","audio","iframe","discard","handler"]);
+  // No remote images, stylesheet rules, scripts, hyperlinks, or event handlers in exports.
+  Array.from(doc.querySelectorAll("*")).forEach(el=>{
+    if(el.namespaceURI!=="http://www.w3.org/2000/svg"||blocked.has(el.localName)){el.remove();n++;return;}
+    Array.from(el.attributes).forEach(a=>{
+      const v=a.value.trim(),key=a.localName.toLowerCase();
+      if(/^on/i.test(key)||/^(inkscape|sodipodi|adobe|c2pa|rdf|dc|cc):/i.test(a.name)||/^xmlns:(?!xlink$)/i.test(a.name)||/^data-/i.test(a.name)||key==="style"||key==="base"||key==="href"&&!/^#[A-Za-z_][\w.:-]*$/.test(v)||/url\s*\(\s*(?!['"]?#)/i.test(v)||/javascript\s*:/i.test(v)){ 
+        el.removeAttributeNode(a);n++;
+      }
+    });
+  });
+  const w=doc.createTreeWalker(doc,NodeFilter.SHOW_COMMENT|NodeFilter.SHOW_PROCESSING_INSTRUCTION),cs=[];
+  while(w.nextNode())cs.push(w.currentNode);
+  cs.forEach(c=>c.remove());n+=cs.length;
+  const result=new XMLSerializer().serializeToString(doc);
+  return{bytes:te.encode(result),log:[{kind:"text",action:"remove",size:0,name:"SVG metadata and active content ("+n+" items)"}],notes:["SVG safety mode: scripts, external media, styles and links are removed; review visual results before sharing."],method:"text"};
+}
+async function reencode(bytes,mime,o,targetMime){
+  const bmp=await createImageBitmap(new Blob([bytes],{type:mime}),{imageOrientation:"from-image"});
+  const c=document.createElement("canvas");c.width=bmp.width;c.height=bmp.height;
+  c.getContext("2d").drawImage(bmp,0,0);
+  const type=targetMime||mime;
+  const blob=await new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error("encode")),type,o.quality));
+  bmp.close?.();
+  if(blob.type!==type)throw new Error("Your browser cannot export "+type+"; choose PNG or JPEG instead.");
+  return{bytes:new Uint8Array(await blob.arrayBuffer()),w:c.width,h:c.height,mime:blob.type};
+}
+
+/* ============================== analysis ============================== */
+function detectFormat(b,mime,name){
+  if(b.length>2&&b[0]===0xFF&&b[1]===0xD8)return"JPEG";
+  if(b.length>2&&b[0]===0x89&&b[1]===0x50)return"PNG";
+  if(b.length>12&&str4(b,0)==="RIFF"&&str4(b,8)==="WEBP")return"WEBP";
+  if(b.length>4&&str4(b,0)==="GIF8")return"GIF";
+  if(b.length>2&&b[0]===0x42&&b[1]===0x4D)return"BMP";
+  if(b.length>12&&str4(b,4)==="ftyp"){const br=str4(b,8)+str4(b,12);if(/avif|avis/i.test(br))return"AVIF";if(/heic|heix|hevc|mif1|msf1/i.test(br))return"HEIC";return"BMFF";}
+  if(b.length>4&&((b[0]===0x49&&b[1]===0x49&&b[2]===42)||(b[0]===0x4D&&b[1]===0x4D&&b[2]===0)))return"TIFF";
+  if(/\.svg$/i.test(name||"")||mime==="image/svg+xml")return"SVG";
+  if(b.length>200){const h=td.decode(b.slice(0,300)).trim().toLowerCase();if(h.startsWith("<svg")||(h.startsWith("<?xml")&&h.indexOf("<svg")>=0))return"SVG";}
+  return"OTHER";
+}
+function collectExifInfo(parsed){
+  const tags=[],F={make:false,shooting:false,time:false,author:false,thumb:false};
+  const push=(arr,ifd)=>{for(const e of arr){
+    if(e.sub){tags.push({ifd,tag:e.tag,name:TAG_NAMES[e.tag]||("Tag 0x"+e.tag.toString(16).toUpperCase()),value:e.sub.length+" sub-tags",cat:"sys",type:e.type});continue;}
+    const cat=tagCat(ifd,e.tag);
+    const nm=(ifd==="gps"?(GPS_NAMES[e.tag]||("GPS 0x"+e.tag.toString(16).toUpperCase())):(TAG_NAMES[e.tag]||("Tag 0x"+e.tag.toString(16).toUpperCase())));
+    tags.push({ifd,tag:e.tag,name:nm,value:fmtVal(e,parsed.le),cat,type:e.type});
+    if(e.tag===0x010F||e.tag===0x0110||e.tag===0xA431||e.tag===0xA434||e.tag===0xA435)F.make=true;
+    if([0x829A,0x829D,0x8827,0x920A,0xA433,0xA434,0x927C].includes(e.tag))F.shooting=true;
+    if(cat==="time")F.time=true;if(cat==="author")F.author=true;
+  }};
+  push(parsed.ifd0,"ifd0");push(parsed.exif,"exif");push(parsed.gps,"gps");push(parsed.interop,"interop");
+  if(parsed.ifd1&&parsed.ifd1.length){F.thumb=!!(parsed.thumbBytes&&parsed.thumbBytes.length);
+    tags.push({ifd:"ifd1",tag:-1,name:"Thumbnail IFD",value:parsed.thumbBytes?("JPEG preview · "+fmtBytes(parsed.thumbBytes.length)):"empty",cat:"sys",type:0});}
+  return{tags,F,gps:gpsDecimal(parsed),orient:orientationOf(parsed)};
+}
+function analyze(bytes,mime,name){
+  const format=detectFormat(bytes,mime,name);
+  const A={format,w:0,h:0,segs:[],exifTags:[],gps:null,orient:1,flags:{exif:false,xmp:false,iptc:false,c2pa:false,icc:false,thumb:false,text:false,time:false,make:false,shooting:false,author:false},notes:[],parsed:null,aiHints:[]};
+  const setF=(k)=>{A.flags[k]=true;};
+  if(format==="JPEG"){
+    const{segs,dims}=scanJPEG(bytes);
+    if(dims){A.w=dims.w;A.h=dims.h;}
+    A.segs=segs.filter(s=>s.m!==0xD8).map(s=>({kind:s.kind,name:s.name,detail:s.detail||"",size:s.total,hex:s.hex||""}));
+    for(const s of segs){
+      if(s.kind==="exif"){setF("exif");try{const p=parseTIFF(s.pay.slice(6));if(p){A.parsed=p;const info=collectExifInfo(p);A.exifTags=info.tags;A.gps=info.gps;A.orient=info.orient;Object.assign(A.flags,info.F);if(info.gps)setF("gps");}}catch(e){}}
+      if(s.kind==="xmp"){setF("xmp");const t=tdL.decode(s.pay.slice(0,Math.min(s.pay.length,4000))).toLowerCase();if(t.indexOf("c2pa")>=0||t.indexOf("contentcredentials")>=0||t.indexOf("ai-generated")>=0||t.indexOf("generative")>=0)A.aiHints.push("XMP mentions AI/provenance");}
+      if(s.kind==="extxmp")setF("xmp");
+      if(s.kind==="psiptc"){setF("iptc");setF("xmp");}
+      if(s.kind==="c2pa"){setF("c2pa");A.aiHints.push("JUMBF manifest present");}
+      if(s.kind==="icc")setF("icc");
+      if(s.kind==="com")setF("text");
+      if(s.kind==="mpf")setF("thumb");
+      if(s.kind==="jfif"&&/thumbnail/.test(s.detail))setF("thumb");
+    }
+    if(A.orient!==1)A.notes.push("Orientation tag = "+A.orient+" — photo relies on it to display upright.");
+  }
+  else if(format==="PNG"){
+    const{ch,dims}=scanPNG(bytes);
+    if(dims){A.w=dims.w;A.h=dims.h;}
+    A.segs=ch.map(c=>({kind:c.kind,name:c.name,detail:c.detail||"",size:c.total,hex:""}));
+    for(const c of ch){
+      if(c.kind==="exif"){setF("exif");try{const p=parseTIFF(c.data.slice());if(p){A.parsed=p;const info=collectExifInfo(p);A.exifTags=info.tags;A.gps=info.gps;A.orient=info.orient;Object.assign(A.flags,info.F);}}catch(e){}}
+      if(c.kind==="xmp")setF("xmp");
+      if(c.kind==="c2pa")setF("c2pa");
+      if(c.kind==="time")setF("time");
+      if(c.kind==="text")setF("text");
+      if(c.kind==="color")setF("icc");
+    }
+  }
+  else if(format==="WEBP"){
+    const{ch,dims}=scanWEBP(bytes);
+    if(dims){A.w=dims.w;A.h=dims.h;}
+    A.segs=ch.map(c=>({kind:c.kind,name:c.name,detail:c.detail||"",size:c.total,hex:""}));
+    for(const c of ch){
+      if(c.kind==="exif"){setF("exif");try{const p=parseTIFF(c.data.slice());if(p){A.parsed=p;const info=collectExifInfo(p);A.exifTags=info.tags;A.gps=info.gps;A.orient=info.orient;Object.assign(A.flags,info.F);}}catch(e){}}
+      if(c.kind==="xmp")setF("xmp");
+      if(c.kind==="c2pa")setF("c2pa");
+      if(c.kind==="icc")setF("icc");
+    }
+  }
+  else if(format==="GIF"){
+    const{bl,dims}=scanGIF(bytes);
+    if(dims){A.w=dims.w;A.h=dims.h;}
+    A.segs=bl.map(s=>({kind:s.kind,name:s.name,detail:s.detail||"",size:s.total,hex:""}));
+    for(const s of bl){if(s.kind==="com")setF("text");if(s.kind==="xmp"){setF("xmp");}}
+  }
+  else if(format==="SVG"){
+    const t=td.decode(bytes.slice(0,Math.min(bytes.length,60000)));
+    if(/<metadata/i.test(t)){setF("text");A.exifTags.push({ifd:"svg",tag:0,name:"metadata element",value:"RDF / editor data present",cat:"author",type:0});}
+    if(/inkscape:|sodipodi:|adobe/i.test(t))setF("author");
+    if(/<!--/.test(t))setF("text");
+    A.segs=[{kind:"core",name:"SVG document",detail:fmtBytes(bytes.length)+" of vector XML",size:bytes.length,hex:""}];
+    A.notes.push("SVG is code, not pixels — editor metadata and comments are stripped from the XML.");
+  }
+  else{
+    A.segs=[{kind:"core",name:format+" container",detail:"Limited inspection — output normalized via re-encode",size:bytes.length,hex:""}];
+    A.notes.push(format+" is decoded and re-encoded to make a new browser-encoded copy (appearance may change).");
+    setF("author");
+  }
+  A.risk=riskOf(A);
+  return A;
+}
+function riskOf(A){
+  const F=A.flags,f=[];let s=0;
+  const add=(pts,t,kind)=>{s+=pts;f.push({pts,t,kind});};
+  if(A.gps)add(35,"GPS coordinates embedded","gps");
+  if(F.make)add(10,"Camera make, model or serials","camera");
+  if(F.shooting)add(8,"Shooting settings (ISO, lens, exposure)","camera");
+  if(F.time)add(8,"Capture timestamps","time");
+  if(F.author)add(8,"Author / software / copyright","author");
+  if(F.thumb)add(10,"Hidden preview thumbnail","thumb");
+  if(F.xmp||F.iptc)add(8,"XMP / IPTC edit history","xmp");
+  if(F.c2pa||A.aiHints.length)add(12,"AI / provenance (C2PA) signals","ai");
+  if(F.text)add(8,"Embedded comments / text","text");
+  if(F.icc)add(2,"Color profile fingerprint","icc");
+  s=Math.min(100,s);
+  return{score:s,level:s>=75?"Critical":s>=50?"High":s>=20?"Medium":"Low",factors:f};
+}
+function riskAfter(A,o){
+  const map={gps:o.gps,camera:o.camera,time:o.time,author:o.author,thumb:o.thumb,xmp:o.xmp,ai:o.ai,text:o.text,icc:!o.keepICC};
+  let s=0;const left=[];
+  for(const f of A.risk.factors){if(map[f.kind])s+=0;else{s+=f.pts;left.push(f);}}
+  s=Math.min(100,s);
+  return{score:s,level:s>=75?"Critical":s>=50?"High":s>=20?"Medium":"Low",left};
+}
+function tagAction(t,o){
+  if(t.cat==="sys")return"keep";
+  if(t.cat==="orient"){return o.orient&&Number.parseInt(t.value,10)!==1?"keep":"remove";}
+  if(t.cat==="gps")return o.gps?"remove":"keep";
+  if(t.cat==="time")return o.time?"remove":"keep";
+  if(t.cat==="author")return o.author?"remove":"keep";
+  return o.camera?"remove":"keep";
+}
+function segAction(kind,o,needsOrient){
+  const exifAllOff=!o.gps&&!o.camera&&!o.time&&!o.author&&!o.thumb;
+  const exifAllOn=o.gps&&o.camera&&o.time&&o.author&&o.thumb;
+  switch(kind){
+    case"exif":
+      if(exifAllOff&&!(o.orient&&needsOrient))return"keep";
+      if(exifAllOn&&!(o.orient&&needsOrient))return"remove";
+      return"clean";
+    case"xmp":case"extxmp":case"psiptc":return o.xmp?"remove":"keep";
+    case"c2pa":return"remove";
+    case"mpf":return o.thumb?"remove":"keep";
+    case"icc":case"color":return o.keepICC?"keep":"remove";
+    case"com":case"text":return o.text?"remove":"keep";
+    case"time":return o.time?"remove":"keep";
+    case"jfif":return"clean";
+    case"otherapp":case"other":case"trailing":return"remove";
+    default:return"keep";
+  }
+}
+
+/* ============================== cleaning pipeline ============================== */
+const FMT_MIME={jpeg:"image/jpeg",png:"image/png",webp:"image/webp"};
+const MIME_EXT={"image/jpeg":"jpg","image/png":"png","image/webp":"webp","image/gif":"gif","image/svg+xml":"svg","image/bmp":"bmp","image/avif":"avif"};
+async function cleanItem(it,settings){
+  const t0=performance.now();
+  const o=settings||{...S.opts},A=it.analysis;
+  let r;
+  if(A.format==="JPEG")r=cleanJPEG(it.bytes,o);
+  else if(A.format==="PNG")r=cleanPNG(it.bytes,o);
+  else if(A.format==="WEBP")r=cleanWEBP(it.bytes,o);
+  else if(A.format==="GIF")r=cleanGIF(it.bytes,o);
+  else if(A.format==="SVG")r=cleanSVG(it.bytes);
+  else{
+    try{
+      const tgt="image/png"; // Browser decoders can read more formats than canvas can export.
+      const rr=await reencode(it.bytes,it.mime,o,tgt);
+      r={bytes:rr.bytes,log:[{kind:"core",action:"clean",size:it.bytes.length,name:"Re-encoded → "+(MIME_EXT[rr.mime]||"img").toUpperCase()}],notes:["Browser re-encode: pixels and color may change; review before sharing"],method:"re-encode",mime:rr.mime};
+    }catch(e){throw new Error("This format could not be safely decoded and exported: "+e.message);}
+  }
+  let outMime=r.mime||it.mime,outBytes=r.bytes;
+  // format conversion on top of cleaned bytes
+  if(o.format!=="original"&&A.format!=="SVG"){
+    const tgt=FMT_MIME[o.format];
+    const curIs=o.format==="jpeg"?A.format==="JPEG":o.format==="png"?A.format==="PNG":A.format==="WEBP";
+    if(!curIs){
+      try{
+        const rr=await reencode(outBytes,outMime,o,tgt);
+        outBytes=rr.bytes;outMime=rr.mime;
+        r.log.push({kind:"core",action:"clean",size:0,name:"Converted → "+o.format.toUpperCase()});
+        r.notes.push("Converted to "+o.format.toUpperCase()+" at "+Math.round(o.quality*100)+"% quality");
+        r.method="re-encode";
+      }catch(e){throw new Error("Conversion failed: "+e.message);}
+    }
+  }
+  const ms=performance.now()-t0;
+  // verify: re-scan output
+  let verify={left:null,tags:null,risk:null};
+  try{
+    const A2=analyze(outBytes,outMime,it.name);
+    verify.left=A2.segs.filter(s=>["exif","xmp","extxmp","psiptc","c2pa","com","text","time"].includes(s.kind)).length;
+    verify.tags=A2.exifTags.filter(t=>t.cat!=="sys"&&t.cat!=="orient").length;
+    verify.risk=A2.risk.score;
+    verify.aiLeft=!!(A2.flags.c2pa||A2.flags.xmp||A2.aiHints.length);
+    verify.allowedExif=A2.segs.filter(s=>s.kind==="exif").length;
+    verify.hasColorProfile=!!A2.flags.icc;
+  }catch(e){throw new Error("Output could not be verified safely.");}
+  if(verify.aiLeft||verify.tags||verify.left>verify.allowedExif||verify.hasColorProfile)
+    throw new Error("Recognized metadata remains in the output. Download blocked.");
+  // pixel hash compare
+  let px=null;
+  if(A.format!=="SVG"&&(!A.w||!A.h||A.w*A.h<=25_000_000)){
+    try{
+      const[h1,h2]=await Promise.all([pixelsHash(new Blob([it.bytes],{type:it.mime})),pixelsHash(new Blob([outBytes],{type:outMime}))]);
+      px={h1,h2,match:!!(h1&&h2&&h1===h2)};
+    }catch(e){}
+  }
+  const removedLog=r.log.filter(l=>l.action==="remove");
+  const removedBytes=removedLog.reduce((a,l)=>a+l.size,0);
+  return{bytes:outBytes,mime:outMime,ms,log:r.log,notes:r.notes||[],method:r.method,verify,px,settings:o,
+    removedItems:removedLog.length+r.log.filter(l=>l.action==="clean").length,
+    removedBytes:Math.max(0,it.bytes.length-outBytes.length)};
+}
+async function pixelsHash(blob){
+  const bmp=await createImageBitmap(blob,{imageOrientation:"from-image"});
+  const sc=Math.min(1,560/Math.max(bmp.width,bmp.height));
+  const w=Math.max(1,Math.round(bmp.width*sc)),h=Math.max(1,Math.round(bmp.height*sc));
+  const c=document.createElement("canvas");c.width=w;c.height=h;
+  c.getContext("2d",{willReadFrequently:true}).drawImage(bmp,0,0,w,h);
+  const d=c.getContext("2d").getImageData(0,0,w,h).data;
+  bmp.close&&bmp.close();
+  return fnv(d)+"_"+bmp.width+"x"+bmp.height;
+}
+
+/* ============================== ZIP ============================== */
+function buildZip(items){
+  const parts=[],central=[];let offset=0;
+  for(const it of items){
+    const nb=te.encode(it.name),crc=crc32(it.data);
+    const lh=new Uint8Array(30+nb.length),dv=new DataView(lh.buffer);
+    dv.setUint32(0,0x04034b50,true);dv.setUint16(4,20,true);dv.setUint16(6,0x0800,true);
+    dv.setUint16(8,0,true);dv.setUint16(10,0,true);dv.setUint16(12,0,true);
+    dv.setUint32(14,crc,true);dv.setUint32(18,it.data.length,true);dv.setUint32(22,it.data.length,true);
+    dv.setUint16(26,nb.length,true);dv.setUint16(28,0,true);lh.set(nb,30);
+    parts.push(lh,it.data);central.push({nb,crc,size:it.data.length,offset});offset+=lh.length+it.data.length;
+  }
+  const cparts=[];let csize=0;
+  for(const c of central){
+    const ch=new Uint8Array(46+c.nb.length),dv=new DataView(ch.buffer);
+    dv.setUint32(0,0x02014b50,true);dv.setUint16(4,20,true);dv.setUint16(6,20,true);
+    dv.setUint16(8,0x0800,true);dv.setUint16(10,0,true);dv.setUint16(12,0,true);dv.setUint16(14,0,true);
+    dv.setUint32(16,c.crc,true);dv.setUint32(20,c.size,true);dv.setUint32(24,c.size,true);
+    dv.setUint16(28,c.nb.length,true);dv.setUint32(42,c.offset,true);ch.set(c.nb,46);
+    cparts.push(ch);csize+=ch.length;
+  }
+  const end=new Uint8Array(22),dv=new DataView(end.buffer);
+  dv.setUint32(0,0x06054b50,true);dv.setUint16(8,central.length,true);dv.setUint16(10,central.length,true);
+  dv.setUint32(12,csize,true);dv.setUint32(16,offset,true);
+  return new Blob([...parts,...cparts,end],{type:"application/zip"});
+}
+
+/* ============================== UI ============================== */
+function outName(it){
+  // Original filenames can contain names, dates or locations; never reuse them in exports.
+  const index=Math.max(1,S.files.indexOf(it)+1);
+  const ext=MIME_EXT[it.result?.mime]||"png";
+  return "metaclean-"+String(index).padStart(2,"0")+"."+ext;
+}
+function downloadIt(it){
+  if(it.status!=="done"||!it.result)return;
+  saveBlob(new Blob([it.result.bytes],{type:it.result.mime}),outName(it));
+}
+function saveBlob(blob,name){
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},5000);
+}
+function render(){
+  const box=$("#list");box.replaceChildren();
+  $("#results").classList.toggle("hidden",!S.files.length);
+  $("#count").textContent=S.files.length;
+  const ready=S.files.filter(it=>it.status==="done"&&it.result);
+  $("#zip").classList.toggle("hidden",ready.length<2);
+  for(const it of S.files){
+    const row=document.createElement("article");row.className="file";
+    const size=it.result?fmtBytes(it.result.bytes.length):"";
+    const desc=esc(it.analysis.format)+" · "+fmtBytes(it.size)+(size?" → "+size:"");
+    const note=it.status==="done"?"Verified clean · "+ (it.result.method==="lossless"?(it.analysis.flags.icc?"color profile removed; colors may vary":"original image data preserved"):it.result.method==="text"?"vector safety pass":"browser re-encode"):
+      it.status==="work"?"Cleaning securely…":it.status==="error"?"Could not clean · "+esc(it.error||"unsupported image"):"Ready to clean";
+    row.innerHTML='<img class="thumb" alt="" src="'+it.url+'"><div class="file-data"><div class="filename" title="'+esc(it.name)+'">'+esc(it.name)+'</div><div class="details">'+desc+'</div><div class="status '+(it.status==="error"?"error":it.status==="work"?"working":"")+'">'+(it.status==="done"?'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>':"")+note+'</div>'+(it.status==="work"?'<div class="progress"></div>':"")+'</div><div class="file-actions"></div>';
+    const actions=row.querySelector(".file-actions");
+    if(it.status==="done"){
+      const dl=document.createElement("button");dl.type="button";dl.className="mini";dl.textContent="Download";dl.setAttribute("aria-label","Download cleaned "+it.name);dl.onclick=()=>downloadIt(it);actions.appendChild(dl);
+    }else if(it.status==="error"){
+      const retry=document.createElement("button");retry.type="button";retry.className="mini";retry.textContent="Retry";retry.onclick=()=>{it.status="ready";it.error=null;render();runCleaning();};actions.appendChild(retry);
+    }
+    const remove=document.createElement("button");remove.type="button";remove.className="icon-btn";remove.title="Remove "+it.name;remove.setAttribute("aria-label","Remove "+it.name);remove.textContent="×";
+    remove.onclick=()=>{URL.revokeObjectURL(it.url);S.files=S.files.filter(f=>f!==it);render();};actions.appendChild(remove);
+    box.appendChild(row);
+  }
+}
+async function addFiles(list){
+  const arr=Array.from(list||[]);
+  if(!arr.length)return;
+  let used=S.files.reduce((sum,it)=>sum+it.size,0),added=0;
+  for(const f of arr){
+    if(S.files.length>=25){toast("Maximum 25 images per queue.","warn");break;}
+    if(f.size>50*1024*1024){toast(esc(f.name)+" exceeds 50 MB.","warn");continue;}
+    if(used+f.size>200*1024*1024){toast("Queue limit is 200 MB. Remove a file first.","warn");continue;}
+    if(!/^image\//.test(f.type)&&!/\.(jpe?g|png|webp|gif|svg|bmp|tiff?|avif|heic|heif)$/i.test(f.name)){toast(esc(f.name)+" isn't a supported image.","warn");continue;}
+    try{
+      const bytes=new Uint8Array(await f.arrayBuffer());
+      const analysis=analyze(bytes,f.type,f.name);
+      const detected={JPEG:"image/jpeg",PNG:"image/png",WEBP:"image/webp",GIF:"image/gif",SVG:"image/svg+xml",BMP:"image/bmp",TIFF:"image/tiff",AVIF:"image/avif",HEIC:"image/heic"};
+      const it={id:uid(),name:f.name,size:f.size,bytes,analysis,mime:detected[analysis.format]||f.type||"application/octet-stream",url:URL.createObjectURL(f),status:"ready",result:null,error:null};
+      S.files.push(it);used+=f.size;added++;
+    }catch(e){toast("Could not read "+esc(f.name)+".","err");}
+  }
+  if(!added)return;
+  render();$("#results").scrollIntoView({behavior:"smooth",block:"start"});
+  await runCleaning();
+}
+async function runCleaning(){
+  if(S.busy)return;
+  S.busy=true;
+  let completed=0;
+  try{
+    for(const it of S.files.filter(f=>f.status==="ready")){
+      if(!S.files.includes(it))continue;
+      it.status="work";render();
+      // Give the browser a frame to paint the status before synchronous byte work.
+      await new Promise(r=>setTimeout(r,16));
+      try{
+        const result=await cleanItem(it);
+        if(!S.files.includes(it))continue;
+        it.result=result;it.status="done";completed++;
+      }catch(e){if(!S.files.includes(it))continue;it.status="error";it.error=e.message||"This format cannot be cleaned safely.";}
+      render();
+    }
+  }finally{
+    S.busy=false;
+    if(completed)toast(completed+" image"+(completed===1?"":"s")+" cleaned and ready to download.","ok");
+    if(S.files.some(f=>f.status==="ready"))queueMicrotask(runCleaning);
+  }
+}
+const pick=()=>$("#fileIn").click();
+$("#browse").addEventListener("click",e=>{e.stopPropagation();pick();});
+$("#drop").addEventListener("click",pick);
+$("#drop").addEventListener("keydown",e=>{if(e.target===$("#drop")&&(e.key==="Enter"||e.key===" ")){e.preventDefault();pick();}});
+$("#fileIn").addEventListener("change",e=>{addFiles(e.target.files);e.target.value="";});
+const drop=$("#drop");
+["dragenter","dragover"].forEach(type=>drop.addEventListener(type,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(type=>drop.addEventListener(type,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>addFiles(e.dataTransfer.files));
+document.addEventListener("paste",e=>{const files=[];for(const item of e.clipboardData?.items||[])if(item.type.startsWith("image/")){const f=item.getAsFile();if(f)files.push(f);}if(files.length)addFiles(files);});
+$("#clear").addEventListener("click",()=>{S.files.forEach(it=>URL.revokeObjectURL(it.url));S.files=[];render();});
+$("#zip").addEventListener("click",()=>{
+  const done=S.files.filter(it=>it.status==="done"&&it.result);
+  if(done.length<2)return;
+  const names=new Set();
+  const items=done.map(it=>{const original=outName(it),dot=original.lastIndexOf(".");let name=original,i=2;while(names.has(name))name=original.slice(0,dot)+"-"+(i++)+original.slice(dot);names.add(name);return{name,data:it.result.bytes};});
+  saveBlob(buildZip(items),"metaclean-images.zip");
+});
+render();
+</script>
+</body>
+</html>
