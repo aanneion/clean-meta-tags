@@ -62,5 +62,3 @@ README.md              Project documentation
 ## Credit
 
 © [Abdullah Al Noman Neion](https://github.com/aanneion) — 2026
-
-If you want others to reuse or modify the code, add a `LICENSE` file with the terms you choose; none is included by default.
