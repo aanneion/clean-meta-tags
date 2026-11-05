@@ -12,28 +12,16 @@ Open [`index.html`](index.html), choose or drop images, and download the cleaned
 - **No needless re-encoding for core formats:** JPEG, PNG, WebP, and GIF cleaning preserves their compressed image data while rewriting/removing metadata structures. An orientation tag may be retained where needed to display a photo upright.
 - **Checks the result:** Re-scans cleaned files for recognized leftover metadata and blocks downloads when that check fails. PNG chunk checksums are validated before cleaning.
 - **Easy batch export:** Up to 25 images, 50 MiB per file and 200 MiB per queue; download individually or as a ZIP. Exported files use generic names instead of potentially revealing original filenames.
-- **The queue forgets itself:** Rows stay listed while a download is still pending. Once every image in the queue has been saved, the list empties automatically and its blob URLs and decoded bytes are released — the page keeps no record of what you cleaned.
-
-## Interface
-
-The page is laid out as a workbench rather than a landing page:
-
-- **Queue rows** show the source filename, container, pixel dimensions, source and output size, a metadata risk score **before → after** cleaning, how many metadata items and bytes were stripped, and the current state (`Queued` → `Cleaning` → `Verified` → `Saved`, or `Failed`).
-- **Expanding a row** opens an inspector with the findings detected in the source (GPS, camera, timestamps, author, thumbnail, XMP/IPTC, C2PA/AI, comments, colour profile), decoded GPS coordinates that were removed, the output verification re-scan, a pixel-hash comparison against the source, the per-segment action log, and the parsed metadata fields with the remove/keep decision applied to each.
-- **Theme** follows your system preference (`prefers-color-scheme`) and can be overridden with the toggle in the top bar. Only that one preference is written to `localStorage`; no image data is ever stored.
-- Images can be added by browsing, by dropping them anywhere on the page, or by pasting from the clipboard.
-
-## Session privacy
-
-Nothing survives the session. The tool writes no cookies, no `localStorage` image data, no IndexedDB records and no history entries — downloads use revoked blob URLs and the export filename never reuses your original. Once every queued image has been downloaded the queue clears itself, and **Clear** does the same at any time.
+- **The list is transient:** A file leaves the queue the moment it is downloaded successfully — its row animates out, its blob URL is revoked and its decoded bytes are released. **Download all as ZIP** clears every file it saved the same way, and **Clear all** does it on demand. Nothing you have already saved stays on the page.
 
 ## Use it
 
 1. Download or clone this repository.
 2. Open **`index.html`** in a modern browser. It also works when served as a static site.
-3. Drop images onto the page, use **Choose images**, or paste an image from your clipboard.
-4. Expand any row to review what was found and what the output verification reported.
-5. Download each cleaned image or use **Download all as ZIP** for two or more results. The queue clears itself once everything has been saved.
+3. Drop images anywhere on the page, use **Choose images**, or paste an image from your clipboard.
+4. Download each cleaned image or use **Download all as ZIP** for two or more results. Saved files drop off the list automatically.
+
+Motion is intentionally light — staggered row entrances, a one-shot acknowledgement when a file verifies clean, and soft hover feedback — and all of it is disabled under `prefers-reduced-motion`.
 
 There is no installation or server-side component. To publish with **GitHub Pages**, place `index.html` at the repository root and enable Pages for your chosen branch/root folder.
 
@@ -70,7 +58,7 @@ The byte-engine test suite covers EXIF rebuilding, JPEG inter-scan and trailing 
 node tests/engine.test.cjs
 ```
 
-An optional UI suite covers the render layer, the theme toggle, and the queue's self-clearing behaviour (rows persist while a download is pending, then the queue empties and revokes its blob URLs once every image is saved). It needs [jsdom](https://github.com/jsdom/jsdom) and skips itself cleanly when jsdom is absent, so the engine suite remains the zero-dependency default:
+An optional UI suite covers the render layer and the transient queue — that a successful download removes exactly that file, that ZIP and **Clear all** release their blob URLs, that export ordinals stay stable so removals cannot cause filename collisions, and that the animation layer is fully covered by `prefers-reduced-motion`. It needs [jsdom](https://github.com/jsdom/jsdom) and skips itself cleanly when jsdom is absent, so the engine suite remains the zero-dependency default:
 
 ```bash
 npm install --no-save jsdom
