@@ -1539,6 +1539,14 @@ function cleanBMFF(bytes,o){
     notes.push("No recognized metadata carriers were present in this file.");
     return{bytes:out,log,notes,method:"lossless"};
   }
+  // 2b. Fail closed if the image item's own data cannot be located. Its extent pointing
+  //     outside the file means the container is damaged (a truncated or missing mdat),
+  //     and rewriting a damaged file risks producing one that decodes to nothing.
+  const imageItems=sc.iinf.items.filter(it=>!drop.has(it.id)&&!/^Exif$/.test(it.type||"")&&!(it.type==="mime"));
+  for(const it of imageItems){
+    if(!bmItemRanges(bytes,sc.iloc,sc.idat,it.id).length)
+      throw new Error("This file's image data could not be located (truncated mdat?) — left untouched rather than risk the image.");
+  }
   // 3. Nothing may be zeroed that the surviving image item still needs.
   const hit=(r,list)=>list.some(q=>r[0]<q[1]&&q[0]<r[1]);
   for(const z of zeroRanges)if(z[1]>z[0]&&hit(z,keepRanges))
