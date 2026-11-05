@@ -604,6 +604,42 @@ function makeBMPV5({profile=true,iccLen=256}={}){
   assert.deepEqual(Array.from(r.bytes),Array.from(lying),'an untrustworthy profile pointer means no rewrite');
 }
 
+/* ---------------- GIF: C2PA and XMP are reported, and C2PA is never optional ---------------- */
+// A GIF application extension carries an 8-byte identifier plus a 3-byte auth code.
+{
+  const gifStart2=get('scanGIF')(plainGif).bl[0].total;
+  const appExt=(id11,payload)=>get('concat')([Uint8Array.of(0x21,0xFF,0x0B),
+    Uint8Array.from([...enc.encode(id11)]),Uint8Array.of(payload.length),payload,Uint8Array.of(0)]);
+  const c2paExt=appExt('JUMBF\0\0\0'+'001',Uint8Array.from([...enc.encode('C2PA-PAYLOAD-DATA')]));
+  const xmpExt=appExt('XMP DataXMP',Uint8Array.from([...enc.encode('<x:xmpmeta/>')]));
+  const gifFrame2=plainGif.subarray(gifStart2,plainGif.length-1);
+  const gifTrailer2=plainGif.subarray(plainGif.length-1);
+  const withBoth=get('concat')([plainGif.subarray(0,gifStart2),xmpExt,c2paExt,gifFrame2,gifTrailer2]);
+  const kinds=get('scanGIF')(withBoth).bl.map(b=>b.kind);
+  assert.ok(kinds.includes('c2pa'),'a JUMBF application extension must be classified as C2PA');
+  assert.ok(kinds.includes('xmp'),'an XMP application extension must be classified as XMP');
+  const A=get('analyze')(withBoth,'image/gif','x.gif');
+  assert.ok(A.flags.c2pa,'GIF C2PA must be reported in the analysis');
+  assert.ok(A.aiHints.length,'GIF C2PA must raise an AI/provenance hint');
+  assert.ok(A.flags.xmp,'GIF XMP must be reported in the analysis');
+  // C2PA is stripped whatever the XMP toggle says.
+  for(const xmpOn of [true,false]){
+    const r=get('cleanGIF')(withBoth,{...opts,xmp:xmpOn});
+    const left=get('scanGIF')(r.bytes).bl;
+    assert.equal(Buffer.from(r.bytes).includes(Buffer.from('C2PA-PAYLOAD-DATA')),false,
+      'the C2PA payload bytes must be gone, not merely reclassified');
+    assert.equal(left.some(b=>b.kind==='c2pa'),false,'GIF C2PA must be removed even with XMP kept');
+    assert.equal(left.filter(b=>b.name==='Image frame').length,1,'the frame must survive');
+    assert.equal(left.some(b=>b.name==='Trailer'),true,'the trailer must survive');
+    assert.equal(left.reduce((a,b)=>a+b.total,0),r.bytes.length,'blocks must still tile the file exactly');
+  }
+  // XMP itself remains switchable.
+  const keptXmp=get('cleanGIF')(withBoth,{...opts,xmp:false});
+  assert.equal(get('scanGIF')(keptXmp.bytes).bl.some(b=>b.kind==='xmp'),true,'XMP must be kept when its toggle is off');
+  const cleaned=get('cleanGIF')(withBoth,opts);
+  assert.equal(get('scanGIF')(cleaned.bytes).bl.some(b=>b.kind==='xmp'),false,'XMP must be removed when its toggle is on');
+}
+
 const z=get('buildZip')([{name:'clean.jpg',data:cleanJ.bytes},{name:'clean.png',data:cleanP.bytes}]);
 assert.ok(z.size>0);
 (async()=>{

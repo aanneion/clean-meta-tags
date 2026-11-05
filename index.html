@@ -676,7 +676,14 @@ function scanGIF(b){
       let kind="core",name="Extension",detail="";
       if(lb===0xF9){name="GCE";detail="Frame control";}
       else if(lb===0xFE){kind="com";name="Comment ext";detail=tdL.decode(b.slice(p+3,Math.min(e,p+90))).replace(/\0/g," ");}
-      else if(lb===0xFF){const id=ascii(b,p+3,11);if(id.indexOf("NETSCAPE2.0")===0){name="NETSCAPE loop";detail="Animation looping";}else{kind="xmp";name="App ext";detail=id||"vendor";}}
+      else if(lb===0xFF){
+        // The application identifier is 8 bytes plus a 3-byte auth code.
+        const id=ascii(b,p+3,11);
+        if(id.indexOf("NETSCAPE2.0")===0){name="NETSCAPE loop";detail="Animation looping";}
+        else if(/JUMBF|C2PA/i.test(id)){kind="c2pa";name="C2PA app ext";detail=id;}
+        else if(/XMP/i.test(id)){kind="xmp";name="XMP app ext";detail=id;}
+        else{kind="xmp";name="App ext";detail=id||"vendor";}
+      }
       else if(lb===0x01){name="Plain-text ext";detail="Visible text (kept)";}
       bl.push({kind,name,detail,off:p,total:e-p});p=e;
     }
@@ -692,7 +699,9 @@ function cleanGIF(bytes,o){
   const out=[],log=[];
   for(const s of bl){
     const raw=bytes.subarray(s.off,s.off+s.total);
-    if(s.kind==="com"&&o.text)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
+    // C2PA is never optional: removing it does not depend on any toggle.
+    if(s.kind==="c2pa")log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
+    else if(s.kind==="com"&&o.text)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
     else if(s.kind==="xmp"&&o.xmp)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
     else{out.push(raw);log.push({kind:s.kind,action:"keep",size:s.total,name:s.name});}
   }
@@ -822,7 +831,11 @@ function analyze(bytes,mime,name){
     const{bl,dims}=scanGIF(bytes);
     if(dims){A.w=dims.w;A.h=dims.h;}
     A.segs=bl.map(s=>({kind:s.kind,name:s.name,detail:s.detail||"",size:s.total,hex:""}));
-    for(const s of bl){if(s.kind==="com")setF("text");if(s.kind==="xmp"){setF("xmp");}}
+    for(const s of bl){
+      if(s.kind==="com")setF("text");
+      else if(s.kind==="c2pa"){setF("c2pa");A.aiHints.push("JUMBF manifest present");}
+      else if(s.kind==="xmp")setF("xmp");
+    }
   }
   else if(format==="TIFF"){
     const sc=scanTIFFFile(bytes);
