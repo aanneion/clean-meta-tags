@@ -103,6 +103,7 @@ main{padding-bottom:100px}
 .file{border:1px solid var(--line);background:rgba(255,255,255,.93);border-radius:17px;padding:13px 16px;display:flex;align-items:center;gap:16px;min-width:0;transition:border-color .15s,box-shadow .15s;box-shadow:0 4px 16px rgba(39,97,54,.035)}
 .file:hover{border-color:var(--line2);box-shadow:0 6px 22px rgba(39,97,54,.07)}
 .thumb{width:61px;height:61px;object-fit:cover;border-radius:10px;background:#eaf2e8;flex:none;border:1px solid var(--line)}
+.thumb-none{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--mint);background:var(--card2);text-transform:uppercase;border-style:dashed}
 .file-data{min-width:0;flex:1}
 .filename{font-size:14px;font-weight:680;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .details{font-size:12px;color:var(--mut);margin-top:2px}
@@ -121,7 +122,7 @@ main{padding-bottom:100px}
 .bottom-actions{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin-top:15px}
 .download-all{border:1px solid #176c42;background:#177b4b;color:#fff;font-weight:750;padding:10px 18px;border-radius:10px;box-shadow:0 6px 20px rgba(22,111,68,.13)}
 .download-all:hover{background:#11683f}
-footer{border-top:1px solid var(--line);color:var(--soft);font-size:12px;text-align:center;padding:21px 24px 28px;background:rgba(255,255,255,.38)}
+footer{color:var(--soft);font-size:12px;text-align:center;padding:21px 24px 28px;background:rgba(255,255,255,.38)}
 footer p{margin:0}
 footer .credit{margin-top:8px;color:var(--mut);font-size:12.5px}
 footer .credit a{color:var(--mint);font-weight:700;text-decoration:none;border-bottom:1px solid rgba(23,123,75,.35);padding-bottom:1px;transition:color .15s,border-color .15s}
@@ -274,6 +275,8 @@ function tagCat(ifd,tag){
   if([0x010E,0x0131,0x013B,0x8298,0x9C9B,0x9C9C,0x9C9D,0x9C9E,0x9C9F,0x9286].includes(tag))return "author";
   return "camera";
 }
+// Formats an <img> can actually paint; everything else falls back to a text tile.
+const THUMB_OK=["JPEG","PNG","WEBP","GIF","SVG","BMP","AVIF"];   // JXL and HEIC are never paintable
 const CAT_LABEL={gps:"GPS",camera:"Camera",time:"Time",author:"Author",orient:"Orient",sys:"Link"};
 function parseTIFF(tiff){
   try{
@@ -669,11 +672,18 @@ function scanGIF(b){
   const subEnd=x=>{while(x<n){const s=b[x];x++;if(s===0)break;x+=s;}return x;};
   while(p<n){
     const t=b[p];
-    if(t===0x21&&p+1<n){const lb=b[p+1];const e=subEnd(p+2+(lb===0xFF||lb===0xFE||lb===0x01||lb===0xF9?(lb===0xF9?6:(lb===0xFF?12:0)):0));
+    if(t===0x21&&p+1<n){const lb=b[p+1];const e=subEnd(p+2+(lb===0xFF||lb===0xFE||lb===0x01||lb===0xF9?(lb===0xF9?5:(lb===0xFF?12:0)):0));
       let kind="core",name="Extension",detail="";
       if(lb===0xF9){name="GCE";detail="Frame control";}
       else if(lb===0xFE){kind="com";name="Comment ext";detail=tdL.decode(b.slice(p+3,Math.min(e,p+90))).replace(/\0/g," ");}
-      else if(lb===0xFF){const id=ascii(b,p+3,11);if(id.indexOf("NETSCAPE2.0")===0){name="NETSCAPE loop";detail="Animation looping";}else{kind="xmp";name="App ext";detail=id||"vendor";}}
+      else if(lb===0xFF){
+        // The application identifier is 8 bytes plus a 3-byte auth code.
+        const id=ascii(b,p+3,11);
+        if(id.indexOf("NETSCAPE2.0")===0){name="NETSCAPE loop";detail="Animation looping";}
+        else if(/JUMBF|C2PA/i.test(id)){kind="c2pa";name="C2PA app ext";detail=id;}
+        else if(/XMP/i.test(id)){kind="xmp";name="XMP app ext";detail=id;}
+        else{kind="xmp";name="App ext";detail=id||"vendor";}
+      }
       else if(lb===0x01){name="Plain-text ext";detail="Visible text (kept)";}
       bl.push({kind,name,detail,off:p,total:e-p});p=e;
     }
@@ -689,7 +699,9 @@ function cleanGIF(bytes,o){
   const out=[],log=[];
   for(const s of bl){
     const raw=bytes.subarray(s.off,s.off+s.total);
-    if(s.kind==="com"&&o.text)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
+    // C2PA is never optional: removing it does not depend on any toggle.
+    if(s.kind==="c2pa")log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
+    else if(s.kind==="com"&&o.text)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
     else if(s.kind==="xmp"&&o.xmp)log.push({kind:s.kind,action:"remove",size:s.total,name:s.name});
     else{out.push(raw);log.push({kind:s.kind,action:"keep",size:s.total,name:s.name});}
   }
@@ -738,9 +750,18 @@ function detectFormat(b,mime,name){
   if(b.length>2&&b[0]===0x89&&b[1]===0x50)return"PNG";
   if(b.length>12&&str4(b,0)==="RIFF"&&str4(b,8)==="WEBP")return"WEBP";
   if(b.length>4&&str4(b,0)==="GIF8")return"GIF";
+  // JPEG XL: container starts with the 12-byte "JXL " signature box, a bare codestream
+  // with the 0xFF0A image header.
+  if(b.length>12&&str4(b,4)==="JXL "&&b[8]===0x0D&&b[9]===0x0A&&b[10]===0x87&&b[11]===0x0A)return"JXL";
+  if(b.length>2&&b[0]===0xFF&&b[1]===0x0A)return"JXL";
   if(b.length>2&&b[0]===0x42&&b[1]===0x4D)return"BMP";
-  if(b.length>12&&str4(b,4)==="ftyp"){const br=str4(b,8)+str4(b,12);if(/avif|avis/i.test(br))return"AVIF";if(/heic|heix|hevc|mif1|msf1/i.test(br))return"HEIC";return"BMFF";}
-  if(b.length>4&&((b[0]===0x49&&b[1]===0x49&&b[2]===42)||(b[0]===0x4D&&b[1]===0x4D&&b[2]===0)))return"TIFF";
+  if(b.length>12&&str4(b,4)==="ftyp"){const br=str4(b,8)+str4(b,12);if(/avif|avis|mif1|miaf/i.test(br))return"AVIF";if(/heic|heix|hevc|hevx|msf1/i.test(br))return"HEIC";return"BMFF";}
+  // Classic TIFF magic is 42, BigTIFF is 43; read it endian-correctly so a BigTIFF is
+  // recognised here and refused by name instead of falling through to a lossy re-encode.
+  if(b.length>8&&((b[0]===0x49&&b[1]===0x49)||(b[0]===0x4D&&b[1]===0x4D))){
+    const m=u16(b,2,b[0]===0x49);
+    if(m===42||m===43)return"TIFF";
+  }
   if(/\.svg$/i.test(name||"")||mime==="image/svg+xml")return"SVG";
   if(b.length>200){const h=td.decode(b.slice(0,300)).trim().toLowerCase();if(h.startsWith("<svg")||(h.startsWith("<?xml")&&h.indexOf("<svg")>=0))return"SVG";}
   return"OTHER";
@@ -810,7 +831,131 @@ function analyze(bytes,mime,name){
     const{bl,dims}=scanGIF(bytes);
     if(dims){A.w=dims.w;A.h=dims.h;}
     A.segs=bl.map(s=>({kind:s.kind,name:s.name,detail:s.detail||"",size:s.total,hex:""}));
-    for(const s of bl){if(s.kind==="com")setF("text");if(s.kind==="xmp"){setF("xmp");}}
+    for(const s of bl){
+      if(s.kind==="com")setF("text");
+      else if(s.kind==="c2pa"){setF("c2pa");A.aiHints.push("JUMBF manifest present");}
+      else if(s.kind==="xmp")setF("xmp");
+    }
+  }
+  else if(format==="TIFF"){
+    const sc=scanTIFFFile(bytes);
+    if(sc.err)A.notes.push(sc.err+" Nothing can be removed from this file safely.");
+    else{
+      if(sc.dims.w){A.w=sc.dims.w;A.h=sc.dims.h;}
+      if(sc.thumbs){setF("thumb");}
+      if(sc.ifds.length>1)A.notes.push("This TIFF holds "+sc.ifds.length+" image directories (pages, previews or RAW sub-images).");
+      // Reuse the EXIF reader, but reclassify every tag for a standalone file: unknown
+      // tags here are image structure, not personal data, and anything classified
+      // non-structural would block the download at verify time.
+      const p=parseTIFF(bytes);
+      if(p){
+        A.parsed=p;
+        const info=collectExifInfo(p);
+        A.exifTags=(info.tags||[]).map(t=>({...t,cat:tiffCatFor(t.tag)}));
+        A.gps=info.gps;A.orient=info.orient;
+        if(info.gps)setF("gps");
+        if(A.orient!==1)A.notes.push("Orientation tag = "+A.orient+" — this image relies on it to display upright.");
+        if(A.exifTags.some(t=>t.cat==="time"))setF("time");
+        if(A.exifTags.some(t=>t.cat==="author"))setF("author");
+        if(A.exifTags.some(t=>t.cat==="camera")){setF("make");setF("shooting");}
+        if(A.exifTags.some(t=>t.cat==="sys"&&TIFF_META.has(t.tag)))setF("author");
+      }
+      for(const ifd of sc.ifds){
+        for(const e of ifd.entries){
+          const nm=TIFF_NAME[e.tag];
+          if(!nm)continue;
+          if(e.tag===0xCD41)A.segs.push({kind:"c2pa",name:nm,detail:"JUMBF container",size:e.len+(e.inline?0:12),hex:""});
+          else if(e.tag===0x02BC)A.segs.push({kind:"xmp",name:nm,detail:"XMP / IPTC / edit history",size:e.len+(e.inline?0:12),hex:""});
+          else if(e.tag===0x8649)A.segs.push({kind:"xmp",name:nm,detail:"Photoshop image resource block",size:e.len+(e.inline?0:12),hex:""});
+          else if(e.tag===0x83BB)A.segs.push({kind:"psiptc",name:nm,detail:"IPTC / Photoshop record",size:e.len+(e.inline?0:12),hex:""});
+          else if(e.tag===0x8773)A.segs.push({kind:"icc",name:nm,detail:"Color profile fingerprint",size:e.len+(e.inline?0:12),hex:""});
+        }
+      }
+      if(A.segs.some(x=>x.kind==="c2pa")){setF("c2pa");A.aiHints.push("JUMBF manifest present");}
+      if(A.segs.some(x=>x.kind==="xmp"))setF("xmp");
+      if(A.segs.some(x=>x.kind==="psiptc"))setF("iptc");
+      if(A.segs.some(x=>x.kind==="icc"))setF("icc");
+      if(A.exifTags.length)setF("exif");
+      A.segs.unshift({kind:"core",name:"TIFF / DNG image",detail:fmtBytes(bytes.length)+" · "+sc.ifds.length+" image director"+(sc.ifds.length===1?"y":"ies"),size:bytes.length,hex:""});
+    }
+  }
+  else if(format==="AVIF"||format==="HEIC"||format==="BMFF"){
+    const sc=scanBMFFFile(bytes);
+    if(sc.err)A.notes.push(sc.err+" Nothing can be removed from this file safely.");
+    else{
+      if(sc.w){A.w=sc.w;A.h=sc.h;}
+      A.notes.push("ISO BMFF container · brand "+sc.brand+" · "+sc.iloc.entries.length+" items");
+      A.segs.push({kind:"core",name:/avif|avis/i.test(sc.brand)?"AVIF image item":"HEIF/HEIC image item",
+        detail:fmtBytes(bytes.length)+" · "+(sc.primary?"primary item "+sc.primary:"no primary item"),size:bytes.length,hex:""});
+      for(const it of sc.iinf.items){
+        const t=it.type||"";
+        const isXmp=t==="mime"&&/rdf\+xml|application\/xml/i.test(it.contentType||it.name||"");
+        if(t==="Exif"){
+          setF("exif");setF("make");setF("shooting");setF("time");setF("author");
+          A.segs.push({kind:"exif",name:"Exif item",detail:"Camera/GPS block in the item table",size:0,hex:""});
+          for(const r of bmItemRanges(bytes,sc.iloc,sc.idat,it.id)){
+            const base=r[0]+4+bmU32(bytes,r[0]);   // 4-byte offset to the TIFF header
+            try{
+              const p=parseTIFF(bytes.subarray(base,r[1]));
+              if(p){A.parsed=p;const info=collectExifInfo(p);A.exifTags=info.tags;A.gps=info.gps;A.orient=info.orient;
+                Object.assign(A.flags,info.F);if(info.gps)setF("gps");}
+            }catch(e){}
+          }
+        }else if(isXmp){
+          setF("xmp");
+          A.segs.push({kind:"xmp",name:"XMP item",detail:"Metadata packet stored as a mime item",size:0,hex:""});
+          try{
+            for(const r of bmItemRanges(bytes,sc.iloc,sc.idat,it.id)){
+              const t2=td.decode(bytes.subarray(r[0],Math.min(r[1],r[0]+8000))).toLowerCase();
+              if(t2.indexOf("digitalsourcetype")>=0||t2.indexOf("trainedalgorithmic")>=0||t2.indexOf("generative")>=0)
+                A.aiHints.push("XMP mentions AI/provenance");
+            }
+          }catch(e){}
+        }
+      }
+      for(const u of sc.uuids){
+        if(u.kind==="c2pa"){setF("c2pa");A.aiHints.push("JUMBF manifest present");
+          A.segs.push({kind:"c2pa",name:"C2PA manifest store",detail:"uuid box (ContentProvenanceBox)",size:u.box.size,hex:""});}
+        else{setF("xmp");A.segs.push({kind:"xmp",name:"XMP uuid box",detail:"Metadata stored as a top-level box",size:u.box.size,hex:""});}
+      }
+      if(A.orient!==1)A.notes.push("Orientation tag = "+A.orient+" — this image relies on it to display upright.");
+    }
+  }
+  else if(format==="JXL"){
+    const sc=scanJXLFile(bytes);
+    if(sc.err)A.notes.push(sc.err+" Nothing can be removed from this file safely.");
+    else if(sc.bare){
+      A.segs=[{kind:"core",name:"JPEG XL codestream",detail:fmtBytes(bytes.length)+" · no container boxes",size:bytes.length,hex:""}];
+      A.notes.push("This is a bare JPEG XL codestream: it has no container boxes, so it cannot carry metadata to remove.");
+    }else{
+      A.segs.push({kind:"core",name:"JPEG XL container",detail:fmtBytes(bytes.length)+" · "+sc.boxes.length+" boxes",size:bytes.length,hex:""});
+      for(const m of sc.meta){
+        const nm=m.kind==="exif"?"Exif box":m.kind==="xmp"?"XMP (\"xml \") box":"JUMBF / C2PA box";
+        A.segs.push({kind:m.kind,name:nm,detail:(m.compressed?"Brotli-wrapped metadata":"Metadata box"),size:m.box.size,hex:""});
+        if(m.kind==="exif"){setF("exif");setF("make");setF("shooting");setF("time");setF("author");}
+        else if(m.kind==="xmp")setF("xmp");
+        else{setF("c2pa");A.aiHints.push("JUMBF manifest present");}
+        if(m.kind==="exif")A.notes.push("The Exif box is "+(m.compressed?"Brotli-compressed":"stored in a separate box")+"; JPEG XL keeps orientation in the codestream, so removing it cannot rotate the image.");
+      }
+      if(!sc.meta.length)A.notes.push("This JPEG XL file carries no metadata boxes.");
+    }
+  }
+  else if(format==="BMP"){
+    const sc=scanBMPFile(bytes);
+    if(sc.err)A.notes.push(sc.err+" Nothing can be removed from this file safely.");
+    else{
+      A.w=sc.w;A.h=sc.h;
+      A.segs.push({kind:"core",name:"BMP bitmap",detail:fmtBytes(bytes.length)+" · "+sc.bpp+"-bit · "+(sc.dib===BMP_DIB_V5?"V5 header":"header "+sc.dib+" bytes"),size:bytes.length,hex:""});
+      if(sc.profile){
+        setF("icc");
+        A.segs.push({kind:"icc",name:"Embedded ICC profile",detail:"Colour profile fingerprint in the V5 header",size:sc.profile.size,hex:""});
+      }
+      // A bitmap has no EXIF, XMP or C2PA carriers; it can only hold a colour profile.
+      A.notes.push(sc.profile
+        ?"The only metadata a bitmap can carry is its embedded colour profile."
+        :"This bitmap carries no colour profile, so there is no metadata to remove.");
+      if(sc.profile)A.notes.push("Removing the profile makes the colours depend on the viewer's own colour handling; switching \"keep colour profile\" off does the same to every format.");
+    }
   }
   else if(format==="SVG"){
     const t=td.decode(bytes.slice(0,Math.min(bytes.length,60000)));
@@ -881,7 +1026,7 @@ function segAction(kind,o,needsOrient){
 
 /* ============================== cleaning pipeline ============================== */
 const FMT_MIME={jpeg:"image/jpeg",png:"image/png",webp:"image/webp"};
-const MIME_EXT={"image/jpeg":"jpg","image/png":"png","image/webp":"webp","image/gif":"gif","image/svg+xml":"svg","image/bmp":"bmp","image/avif":"avif"};
+const MIME_EXT={"image/jpeg":"jpg","image/png":"png","image/webp":"webp","image/gif":"gif","image/svg+xml":"svg","image/bmp":"bmp","image/avif":"avif","image/heic":"heic","image/jxl":"jxl","image/tiff":"tiff"};
 async function cleanItem(it,settings){
   const t0=performance.now();
   const o=settings||{...S.opts},A=it.analysis;
@@ -890,6 +1035,10 @@ async function cleanItem(it,settings){
   else if(A.format==="PNG")r=cleanPNG(it.bytes,o);
   else if(A.format==="WEBP")r=cleanWEBP(it.bytes,o);
   else if(A.format==="GIF")r=cleanGIF(it.bytes,o);
+  else if(A.format==="TIFF")r=cleanTIFF(it.bytes,o);
+  else if(A.format==="AVIF"||A.format==="HEIC"||A.format==="BMFF")r=cleanBMFF(it.bytes,o);
+  else if(A.format==="JXL")r=cleanJXL(it.bytes,o);
+  else if(A.format==="BMP")r=cleanBMP(it.bytes,o);
   else if(A.format==="SVG")r=cleanSVG(it.bytes);
   else{
     try{
@@ -950,6 +1099,735 @@ async function pixelsHash(blob){
   const d=c.getContext("2d").getImageData(0,0,w,h).data;
   bmp.close&&bmp.close();
   return fnv(d)+"_"+bmp.width+"x"+bmp.height;
+}
+
+/* ============================== TIFF / DNG (standalone files) ============================== */
+// Standalone TIFF-family files (TIFF, TIFF/EP, DNG and TIFF-based RAW) mix image
+// structure with metadata inside the same IFD, unlike the EXIF-in-JPEG case above,
+// where the TIFF structure carries metadata only.
+//
+// Cleaning deliberately does NOT rebuild the file. Every IFD is edited in place, the
+// 12 raw bytes of each surviving entry are copied verbatim, dropped payloads are
+// zeroed, and all strip/tile data stays at its original offset. Nothing is relocated,
+// so no StripOffsets / TileOffsets / SubIFD pointer ever needs patching -- the usual
+// way a TIFF rewrite silently corrupts a RAW file. Dropped metadata is overwritten
+// with zeros rather than merely unreferenced, so it cannot be carved back out.
+const TIFF_SUBIFD=new Set([0x8769,0x8825,0xA005]);
+const TIFF_META=new Set([0x010D,0x010E,0x010F,0x0110,0x011D,0x0131,0x0132,0x013B,0x013C,
+  0x8298,0x02BC,0x83BB,0xCD41,0x8649,0xC4A5,0xEA1C,0x9C9B,0x9C9C,0x9C9D,0x9C9E,0x9C9F]);
+// Structural tags: removing any of these stops the file from decoding. Everything
+// outside TIFF_META is kept, so DNG-private tags (BlackLevel, DefaultCropSize, ...)
+// survive untouched.
+const TIFF_STRUCT=new Set([0x00FE,0x00FF,0x0100,0x0101,0x0102,0x0103,0x0106,0x0107,0x010A,
+  0x010B,0x0111,0x0115,0x0116,0x0117,0x011A,0x011B,0x011C,0x0120,0x0122,0x0123,0x0124,
+  0x0125,0x0129,0x0140,0x0141,0x0142,0x0143,0x0144,0x0145,0x014A,0x0152,0x0153,0x0154,
+  0x0155,0x0156,0x0157,0x015B,0x0201,0x0202,0x0211,0x0212,0x0213,0x0214,0x0215,0x0216,
+  0x828D,0x828E,0x828F,0x8773]);
+const TIFF_NAME={0x00FE:"NewSubfileType",0x010D:"DocumentName",0x010E:"ImageDescription",
+  0x010F:"Make",0x0110:"Model",0x011D:"PageName",0x0131:"Software",0x0132:"DateTime",
+  0x013B:"Artist",0x013C:"HostComputer",0x0111:"StripOffsets",0x0117:"StripByteCounts",
+  0x0144:"TileOffsets",0x0145:"TileByteCounts",0x014A:"SubIFDs",0x0201:"JPEGInterchangeFormat",
+  0x0202:"JPEGInterchangeLength",0x8298:"Copyright",0x8769:"ExifIFD",0x8825:"GPSIFD",
+  0xA005:"InteropIFD",0x8773:"ICC profile",0x02BC:"XMP packet",0x83BB:"IPTC-NAA",
+  0xCD41:"C2PA manifest store",0x8649:"Photoshop IRB",0xC4A5:"PrintIM",0xEA1C:"Padding",
+  0x9C9B:"XPTitle",0x9C9C:"XPComment",0x9C9D:"XPAuthor",0x9C9E:"XPKeywords",0x9C9F:"XPSubject"};
+// For a standalone TIFF the default MUST be "structure", not "metadata": unknown tags
+// are far more likely to be image description than personal data, and verify() blocks
+// the download whenever a non-structural tag survives.
+function tiffCatFor(tag){
+  if(tag===0x0112)return"orient";
+  if([0x0132,0x9003,0x9004,0x9290,0x9291,0x9292].includes(tag))return"time";
+  if([0x010D,0x010E,0x0131,0x013B,0x013C,0x8298,0x9C9B,0x9C9C,0x9C9D,0x9C9E,0x9C9F].includes(tag))return"author";
+  if(TIFF_META.has(tag))return"camera";
+  return"sys";
+}
+function tifIfd(b,le,off){
+  if(off==null||off<8||off+2>b.length)return null;
+  const n=u16(b,off,le);
+  if(n===0||n>4096||off+2+n*12+4>b.length)return null;
+  const entries=[];
+  for(let i=0;i<n;i++){
+    const p=off+2+i*12;
+    const tag=u16(b,p,le),type=u16(b,p+2,le),count=u32(b,p+4,le);
+    const sz=T_SIZES[type];
+    if(!sz||count>0x1000000)continue;
+    const len=count*sz,inline=len<=4;
+    let voff=null;
+    if(!inline){voff=u32(b,p+8,le);if(voff<8||voff+len>b.length)continue;}
+    entries.push({p,tag,type,count,len,inline,voff});
+  }
+  if(!entries.length)return null;
+  const nextAt=off+2+n*12;
+  return{off,n,entries,nextAt,next:u32(b,nextAt,le),end:nextAt+4};
+}
+function tifVals(b,le,e){
+  const at=e.inline?e.p+8:e.voff,out=[];
+  for(let i=0;i<e.count;i++){
+    if(e.type===3)out.push(u16(b,at+i*2,le));
+    else if(e.type===4)out.push(u32(b,at+i*4,le));
+    else if(e.type===1||e.type===7)out.push(b[at+i]);
+    else break;
+  }
+  return out;
+}
+function tifTag(ifd,tag){for(const e of ifd.entries)if(e.tag===tag)return e;return null;}
+function scanTIFFFile(b){
+  if(b.length<8)return{err:"File too short to be TIFF"};
+  const le=b[0]===0x49&&b[1]===0x49?true:(b[0]===0x4D&&b[1]===0x4D?false:null);
+  if(le===null)return{err:"Not a TIFF byte-order marker"};
+  const magic=u16(b,2,le);
+  if(magic===43)return{err:"BigTIFF (64-bit offsets) cannot be cleaned losslessly"};
+  if(magic!==42)return{err:"Not a classic TIFF file"};
+  const ifds=[],seen=new Set();
+  let off=u32(b,4,le),guard=0;
+  while(off){
+    if(++guard>65536)return{err:"TIFF IFD chain too long"};
+    if(seen.has(off))return{err:"TIFF IFD chain loops back on itself"};
+    seen.add(off);
+    const ifd=tifIfd(b,le,off);
+    if(!ifd)return{err:"Corrupt or truncated TIFF directory"};
+    ifds.push(ifd);off=ifd.next;
+  }
+  if(!ifds.length)return{err:"TIFF has no image directory"};
+  const w=tifTag(ifds[0],0x0100),h=tifTag(ifds[0],0x0101);
+  const dims={w:w?tifVals(b,le,w)[0]||0:0,h:h?tifVals(b,le,h)[0]||0:0};
+  let thumbs=0;
+  for(let i=1;i<ifds.length;i++){
+    const f=ifds[i],e=tifTag(f,0x00FE);
+    if((e&&tifVals(b,le,e)[0]&1)||tifTag(f,0x0201))thumbs++;
+  }
+  return{le,ifds,dims,thumbs};
+}
+// Payloads that must never be touched: strips, tiles and embedded JPEG previews.
+function tifPixelRanges(b,le,ifd){
+  const r=[];
+  for(const pair of [[0x0111,0x0117],[0x0144,0x0145]]){
+    const oe=tifTag(ifd,pair[0]),ce=tifTag(ifd,pair[1]);
+    if(!oe||!ce)continue;
+    const offs=tifVals(b,le,oe),lens=tifVals(b,le,ce);
+    for(let i=0;i<offs.length&&i<lens.length;i++)
+      if(lens[i]>0&&offs[i]>=8&&offs[i]+lens[i]<=b.length)r.push([offs[i],offs[i]+lens[i]]);
+  }
+  const ji=tifTag(ifd,0x0201),jl=tifTag(ifd,0x0202);
+  if(ji&&jl){
+    const o=tifVals(b,le,ji)[0],l=tifVals(b,le,jl)[0];
+    if(o>=8&&l>0&&o+l<=b.length)r.push([o,o+l]);
+  }
+  return r;
+}
+function tifSubIfdOffsets(b,le,ifd){
+  const e=tifTag(ifd,0x014A);
+  return e?tifVals(b,le,e).filter(o=>o>=8&&o<b.length):[];
+}
+function cleanTIFF(bytes,o){
+  const sc=scanTIFFFile(bytes);
+  if(sc.err)throw new Error(sc.err+" — this file is left untouched rather than re-encoded.");
+  const le=sc.le,ifds=sc.ifds;
+  const out=bytes.slice();
+  const dv=new DataView(out.buffer,out.byteOffset,out.byteLength);
+  const log=[],notes=[],keepRanges=[],zeroRanges=[];
+
+  // 1. Decide which directories survive. IFD 0 always does; it describes the primary
+  //    image. A later directory that is a thumbnail (when thumbnails are being removed)
+  //    or that carries no image data at all is metadata-only and goes -- c2patool
+  //    appends exactly such a directory holding only the C2PA tag 0xCD41, which
+  //    libtiff then rejects as a broken image.
+  const hasPix=f=>!!(tifTag(f,0x0111)||tifTag(f,0x0144)||tifTag(f,0x014A)||tifTag(f,0x0201));
+  const isThumb=f=>{
+    const e=tifTag(f,0x00FE);
+    if(e&&(tifVals(bytes,le,e)[0]&1))return true;   // reduced-resolution image
+    return !!tifTag(f,0x0201);                      // embedded JPEG preview
+  };
+  const drops=e=>e.tag===0x8773?!o.keepICC:TIFF_META.has(e.tag);
+  const plan=ifds.map((f,i)=>({ifd:f,isThumb:isThumb(f),
+    drop:i>0&&((!!o.thumb&&isThumb(f))||!hasPix(f))}));
+
+  // 2. Protect every byte of surviving pixel data, descending into SubIFDs (DNG keeps
+  //    its actual RAW data there).
+  const visit=(f,depth)=>{
+    if(!f||depth>8)return;
+    for(const r of tifPixelRanges(bytes,le,f))keepRanges.push(r);
+    for(const off of tifSubIfdOffsets(bytes,le,f))visit(tifIfd(bytes,le,off),depth+1);
+  };
+  plan.forEach(p=>{if(!p.drop)visit(p.ifd,0);});
+
+  // 3. Collect what gets erased: whole dropped directory trees, and the out-of-line
+  //    payload of every dropped tag.
+  const zeroTree=(f,depth)=>{
+    if(!f||depth>8)return;
+    zeroRanges.push([f.off,f.end]);
+    for(const e of f.entries){
+      if(!e.inline)zeroRanges.push([e.voff,e.voff+e.len]);
+      if(TIFF_SUBIFD.has(e.tag)||e.tag===0x014A)
+        for(const off of tifVals(bytes,le,e))zeroTree(tifIfd(bytes,le,off),depth+1);
+    }
+  };
+  for(const p of plan){
+    const f=p.ifd;
+    if(p.drop){
+      zeroTree(f,0);
+      for(const r of tifPixelRanges(bytes,le,f))zeroRanges.push(r);
+      log.push({kind:p.isThumb?"exif":"exif",action:"remove",size:f.end-f.off,
+        name:"Image directory "+(p.isThumb?"(thumbnail)":"(metadata-only)")});
+      continue;
+    }
+    for(const e of f.entries){
+      const isICC=e.tag===0x8773;
+      if(!drops(e)){
+        if(!e.inline)keepRanges.push([e.voff,e.voff+e.len]);
+        if(e.tag===0x014A)for(const off of tifVals(bytes,le,e))visit(tifIfd(bytes,le,off),0);
+        continue;
+      }
+      if(!e.inline)zeroRanges.push([e.voff,e.voff+e.len]);
+      if(TIFF_SUBIFD.has(e.tag))
+        for(const off of tifVals(bytes,le,e))zeroTree(tifIfd(bytes,le,off),0);
+      const kind=e.tag===0xCD41?"c2pa":e.tag===0x02BC||e.tag===0x8649?"xmp":
+        e.tag===0x83BB?"psiptc":isICC?"icc":e.tag===0x8825?"gps":e.tag===0x8769?"exif":
+        e.tag===0x0132?"time":tiffCatFor(e.tag)==="author"?"author":"text";
+      log.push({kind,action:"remove",size:e.inline?0:e.len,
+        name:TIFF_NAME[e.tag]||("Tag 0x"+e.tag.toString(16).toUpperCase())});
+    }
+  }
+
+  // 4. Plan each surviving directory's rewrite, including the freed tail of its own
+  //    region, so that tail is covered by the overlap check in step 5.
+  const writes=[];
+  plan.forEach((p,idx)=>{
+    if(p.drop)return;
+    const f=p.ifd,survivors=f.entries.filter(e=>!drops(e));
+    if(!survivors.length)throw new Error("TIFF cleaning would leave an empty image directory");
+    const nextAt=f.off+2+survivors.length*12;
+    let next=0;
+    for(let j=idx+1;j<plan.length;j++){if(!plan[j].drop){next=plan[j].ifd.off;break;}}
+    writes.push({f,survivors,nextAt,next});
+    zeroRanges.push([nextAt+4,f.end]);
+  });
+
+  // 5. Fail closed: never zero a byte that surviving data still depends on. A TIFF whose
+  //    field data is interleaved with its pixel data is left alone rather than mangled.
+  const hit=(r,list)=>list.some(q=>r[0]<q[1]&&q[0]<r[1]);
+  for(const z of zeroRanges)
+    if(z[1]>z[0]&&hit(z,keepRanges))throw new Error("This TIFF interleaves metadata with pixel data; left untouched rather than risk the image.");
+
+  // 6. Rewrite the directories in place. Entries keep their original 12 bytes, so field
+  //    types, counts and value offsets all remain exactly as the encoder wrote them.
+  for(const w of writes){
+    dv.setUint16(w.f.off,w.survivors.length,le);
+    w.survivors.forEach((e,i)=>{
+      const at=w.f.off+2+i*12;
+      if(at!==e.p)out.set(bytes.subarray(e.p,e.p+12),at);
+    });
+    dv.setUint32(w.nextAt,w.next,le);
+  }
+  for(const r of zeroRanges)
+    if(r[1]>r[0]&&r[0]>=0&&r[1]<=out.length)out.fill(0,r[0],r[1]);
+
+  // 7. Re-verify our own output: structure still parses, no carrier survives, and not
+  //    one byte of pixel data changed.
+  const check=scanTIFFFile(out);
+  if(check.err)throw new Error("Cleaned TIFF failed its own structural check: "+check.err);
+  for(const f of check.ifds)for(const e of f.entries){
+    if(e.tag===0x8773&&o.keepICC)continue;
+    if(TIFF_META.has(e.tag))throw new Error("Recognized metadata survived TIFF cleaning");
+    if(!e.inline&&e.voff+e.len>out.length)throw new Error("Cleaned TIFF has an out-of-range field");
+  }
+  for(const r of keepRanges){
+    if(r[1]<=r[0])continue;
+    for(let i=r[0];i<r[1];i++)
+      if(out[i]!==bytes[i])throw new Error("TIFF pixel data was modified");
+  }
+  const dp=plan.filter(p=>p.drop).length;
+  if(dp)notes.push("Dropped "+dp+" extra image director"+(dp===1?"y":"ies")+" (thumbnail or metadata-only) from the TIFF chain.");
+  if(!log.length)notes.push("No recognized metadata carriers were present in this TIFF.");
+  return{bytes:out,log,notes,method:"lossless"};
+}
+
+/* ============================== AVIF / HEIC / HEIF (ISO BMFF) ============================== */
+// Browsers can decode AVIF but cannot export it, so these files used to fall through to
+// canvas and come back as PNG -- a visible re-encode. HEIC no browser can decode at all,
+// so it failed outright. Both are handled natively here.
+//
+// Metadata in BMFF lives in the `meta` box as an item table: `iinf` names each item, and
+// `iloc` gives the byte extent where its payload sits (usually out in `mdat`). Cleaning
+// therefore rewrites the item table only, zeroes the abandoned payload bytes and leaves
+// the image item's extent and the `mdat` payload completely untouched, so the encoded
+// image is bit-for-bit identical. C2PA is different: the spec embeds it as a top-level
+// `uuid` box that must appear before the first `mdat`, so it is replaced by an equally
+// large `free` box -- which is what the reference implementations do -- keeping every
+// offset in the file stable.
+const BMFF_C2PA_UUID=[0xD8,0xFE,0xC3,0xD6,0x1B,0x0E,0x48,0x3C,0x92,0x97,0x58,0x28,0x87,0x7E,0xC4,0x81];
+const BMFF_XMP_UUID=[0xBE,0x7A,0xCF,0xCB,0x97,0xA9,0x42,0xE8,0x9C,0x71,0x99,0x94,0x91,0xE3,0xAF,0xAC];
+function bmU32(b,o){return ((b[o]<<24)|(b[o+1]<<16)|(b[o+2]<<8)|b[o+3])>>>0;}
+function bmU16(b,o){return (b[o]<<8)|b[o+1];}
+function bmU64(b,o){
+  let hi=bmU32(b,o),lo=bmU32(b,o+4);
+  if(hi>0x1FFFFF)return-1;                      // larger than any real file
+  return hi*4294967296+lo;
+}
+function bmStr(b,o,n){let s="";for(let i=0;i<n&&o+i<b.length;i++)s+=String.fromCharCode(b[o+i]);return s;}
+function bmPut32(b,o,v){b[o]=(v>>>24)&255;b[o+1]=(v>>>16)&255;b[o+2]=(v>>>8)&255;b[o+3]=v&255;}
+// Reads the boxes in [start,end). A box with no room for its payload is not a box.
+function bmBoxes(b,start,end){
+  const out=[];let o=start;
+  while(o+8<=end){
+    let size=bmU32(b,o),hdr=8;
+    const type=bmStr(b,o+4,4);
+    if(size===1){if(o+16>end)break;size=bmU64(b,o+8);hdr=16;}
+    else if(size===0)size=end-o;
+    if(size<hdr||o+size>end)break;
+    out.push({type,start:o,size,hdr,end:o+size,payload:o+hdr});
+    o+=size;
+  }
+  return out;
+}
+function bmFind(boxes,type){for(const x of boxes)if(x.type===type)return x;return null;}
+// `meta` is usually a FullBox (4 bytes of version/flags); QuickTime writes it without.
+function bmMetaChildren(b,meta){
+  let start=meta.payload;
+  if(bmStr(b,start+4,4)==="hdlr"||bmStr(b,start+4,4)==="pitm")start+=4;
+  return bmBoxes(b,start,meta.end);
+}
+function bmParseIinf(b,box){
+  const ver=b[box.payload],items=[];
+  let q=box.payload+4;
+  const count=ver===0?bmU16(b,q):bmU32(b,q);
+  q+=ver===0?2:4;
+  for(const e of bmBoxes(b,q,box.end)){
+    if(e.type!=="infe")continue;
+    const v=b[e.payload];
+    let r=e.payload+4,id,typ=null,contentType=null;
+    if(v>=3){id=bmU32(b,r);r+=4;}else{id=bmU16(b,r);r+=2;}
+    r+=2;                                        // protection_index
+    if(v>=2){typ=bmStr(b,r,4);r+=4;}
+    // item_name is a NUL-terminated string; for `mime` items a content_type follows it.
+    let nameEnd=r;while(nameEnd<e.end&&b[nameEnd]!==0)nameEnd++;
+    const name=bmStr(b,r,nameEnd-r);
+    if(v>=2&&typ==="mime"){
+      let c=r;while(c<e.end&&b[c]!==0)c++;
+      c++;
+      let ce=c;while(ce<e.end&&b[ce]!==0)ce++;
+      contentType=bmStr(b,c,ce-c);
+    }
+    items.push({id,type:typ,name,contentType,box:e});
+  }
+  return{version:ver,declared:count,items};
+}
+function bmParseIloc(b,box){
+  const v=b[box.payload];
+  let r=box.payload+4;
+  const offSize=b[r]>>4,lenSize=b[r]&15;r++;
+  const baseSize=b[r]>>4,indexSize=b[r]&15;r++;
+  const count=v<2?bmU16(b,r):bmU32(b,r);
+  r+=v<2?2:4;
+  const rd=(n)=>{let x=0;for(let i=0;i<n;i++)x=x*256+b[r+i];r+=n;return x;};
+  const entries=[];
+  for(let i=0;i<count;i++){
+    if(r+3>box.end)break;
+    const id=v<2?bmU16(b,r):bmU32(b,r);r+=v<2?2:4;
+    let method=0;
+    if(v===1||v===2){method=bmU16(b,r)&15;r+=2;}
+    const dataRef=bmU16(b,r);r+=2;
+    const base=baseSize?rd(baseSize):0;
+    const ec=bmU16(b,r);r+=2;
+    const extents=[];
+    for(let k=0;k<ec;k++){
+      if((v===1||v===2)&&indexSize)rd(indexSize);
+      const off=rd(offSize),len=rd(lenSize);
+      extents.push({off,len});
+    }
+    entries.push({id,method,dataRef,base,extents});
+  }
+  return{version:v,entries,header:{offSize,lenSize,baseSize,indexSize}};
+}
+// Absolute [start,end) byte ranges an item occupies, plus the file position of each
+// extent's offset field so the table could be rewritten if it ever had to be.
+function bmItemRanges(b,iloc,idat,id){
+  const item=iloc.entries.find(e=>e.id===id);
+  if(!item)return[];
+  const out=[];
+  for(const ex of item.extents){
+    if(ex.len===0)continue;
+    const at=item.method===1?(idat?idat.payload+ex.off:-1):item.base+ex.off;
+    if(at<0||at+ex.len>b.length)continue;
+    out.push([at,at+ex.len]);
+  }
+  return out;
+}
+function scanBMFFFile(b){
+  if(b.length<16)return{err:"File too short to be a BMFF image"};
+  const top=bmBoxes(b,0,b.length);
+  const ftyp=bmFind(top,"ftyp");
+  if(!ftyp)return{err:"No ftyp box — not a BMFF image"};
+  const brand=bmStr(b,ftyp.payload,4);
+  const compat=[];
+  for(let o=ftyp.payload+8;o+4<=ftyp.end;o+=4)compat.push(bmStr(b,o,4));
+  const meta=bmFind(top,"meta");
+  if(!meta)return{err:"No meta box — this BMFF file carries no image item table"};
+  // `meta` is a FullBox, so its children start after the version/flags word. QuickTime
+  // sometimes writes it without one; the first child's type settles which layout it is.
+  // Probing at payload+4 (where that type would sit) avoids reading the flags as a size.
+  const metaKidsAt=bmStr(b,meta.payload+4,4)==="hdlr"?meta.payload:meta.payload+4;
+  const kids=bmBoxes(b,metaKidsAt,meta.end);
+  const iinfBox=bmFind(kids,"iinf"),ilocBox=bmFind(kids,"iloc");
+  if(!iinfBox||!ilocBox)return{err:"BMFF meta box is missing its item table"};
+  const iinf=bmParseIinf(b,iinfBox);
+  const iloc=bmParseIloc(b,ilocBox);
+  const idat=bmFind(kids,"idat");
+  const pitmBox=bmFind(kids,"pitm");
+  let primary=null;
+  if(pitmBox){
+    const v=b[pitmBox.payload];
+    primary=v===0?bmU16(b,pitmBox.payload+4):bmU32(b,pitmBox.payload+4);
+  }
+  const uuids=[];
+  for(const x of top){
+    if(x.type!=="uuid"||x.payload+16>x.end)continue;
+    const ut=Array.from(b.subarray(x.payload,x.payload+16));
+    const kind=ut.every((v,i)=>v===BMFF_C2PA_UUID[i])?"c2pa":ut.every((v,i)=>v===BMFF_XMP_UUID[i])?"xmp":null;
+    if(kind)uuids.push({box:x,kind});
+  }
+  // dimensions live in iprp/ipco/ispe
+  let w=0,h=0;
+  const iprp=bmFind(kids,"iprp");
+  if(iprp){
+    const ipco=bmFind(bmBoxes(b,iprp.payload,iprp.end),"ipco");
+    if(ipco)for(const p of bmBoxes(b,ipco.payload,ipco.end))
+      if(p.type==="ispe"&&p.size>=20){w=bmU32(b,p.payload+4);h=bmU32(b,p.payload+8);break;}
+  }
+  return{top,ftyp,brand,compat,meta,metaKidsAt,kids,iinf,iloc,idat,primary,uuids,w,h,err:undefined};
+}
+function cleanBMFF(bytes,o){
+  const sc=scanBMFFFile(bytes);
+  if(sc.err)throw new Error(sc.err+" — this file is left untouched rather than re-encoded.");
+  const out=bytes.slice(),log=[],notes=[],zeroRanges=[],keepRanges=[];
+  const kids=sc.kids;
+
+  // 1. Decide which items go. The Exif item is a single blob, so it is kept whole when
+  //    every metadata toggle is off and dropped otherwise; there is no safe way to edit
+  //    it in place without the ability to resize the item table freely.
+  const exifOn=!!(o.gps||o.camera||o.time||o.author||o.thumb);
+  const drop=new Set();
+  for(const it of sc.iinf.items){
+    const t=it.type||"";
+    const isXmp=t==="mime"&&/rdf\+xml|application\/xml/i.test(it.contentType||it.name||"");
+    const isExif=t==="Exif";
+    if(isExif&&exifOn){drop.add(it.id);}
+    else if(isXmp&&o.xmp){drop.add(it.id);}
+  }
+  for(const it of sc.iinf.items){
+    if(drop.has(it.id)){
+      const ranges=bmItemRanges(bytes,sc.iloc,sc.idat,it.id);
+      for(const r of ranges)zeroRanges.push(r);
+      const kind=it.type==="Exif"?"exif":"xmp";
+      log.push({kind,action:"remove",size:ranges.reduce((a,r)=>a+(r[1]-r[0]),0),
+        name:it.type==="Exif"?"Exif item":(it.type||"item")+" item"});
+    }else{
+      for(const r of bmItemRanges(bytes,sc.iloc,sc.idat,it.id))keepRanges.push(r);
+    }
+  }
+  // 2. C2PA / standalone XMP `uuid` boxes: swap for an equally sized `free` box so that
+  //    no offset in the file moves.
+  for(const u of sc.uuids){
+    if(u.kind==="c2pa"||(u.kind==="xmp"&&o.xmp)){
+      out.set([0x66,0x72,0x65,0x65],u.box.start+4);       // 'free'
+      zeroRanges.push([u.box.payload,u.box.end]);
+      log.push({kind:u.kind==="c2pa"?"c2pa":"xmp",action:"remove",size:u.box.size,
+        name:u.kind==="c2pa"?"C2PA manifest store (uuid box)":"XMP uuid box"});
+    }
+  }
+  if(!drop.size&&!log.length){
+    notes.push("No recognized metadata carriers were present in this file.");
+    return{bytes:out,log,notes,method:"lossless"};
+  }
+  // 2b. Fail closed if the image item's own data cannot be located. Its extent pointing
+  //     outside the file means the container is damaged (a truncated or missing mdat),
+  //     and rewriting a damaged file risks producing one that decodes to nothing.
+  const imageItems=sc.iinf.items.filter(it=>!drop.has(it.id)&&!/^Exif$/.test(it.type||"")&&!(it.type==="mime"));
+  for(const it of imageItems){
+    if(!bmItemRanges(bytes,sc.iloc,sc.idat,it.id).length)
+      throw new Error("This file's image data could not be located (truncated mdat?) — left untouched rather than risk the image.");
+  }
+  // 3. Nothing may be zeroed that the surviving image item still needs.
+  const hit=(r,list)=>list.some(q=>r[0]<q[1]&&q[0]<r[1]);
+  for(const z of zeroRanges)if(z[1]>z[0]&&hit(z,keepRanges))
+    throw new Error("This file's metadata shares bytes with its image data; left untouched rather than risk the image.");
+
+  // 4. Rebuild the item table. Every other meta child is copied verbatim.
+  const nIinf=sc.iinf.items.filter(it=>!drop.has(it.id));
+  const nIloc=sc.iloc.entries.filter(e=>!drop.has(e.id));
+  const parts=[];
+  for(const k of kids){
+    if(k.type==="iinf"){
+      const hdr=new Uint8Array(k.size);let p=0;
+      hdr.set(bytes.subarray(k.start,k.start+8),p);p+=8;    // size + 'iinf'
+      hdr.set(bytes.subarray(k.payload,k.payload+4),p);p+=4; // version/flags
+      if(sc.iinf.version===0){hdr[p]=nIinf.length>>8;hdr[p+1]=nIinf.length&255;p+=2;}
+      else{bmPut32(hdr,p,nIinf.length);p+=4;}
+      for(const it of nIinf){const e=it.box;hdr.set(bytes.subarray(e.start,e.end),p);p+=e.size;}
+      bmPut32(hdr,0,p);                                   // the box's own size must match
+      parts.push({box:k,size:p,data:hdr.subarray(0,p)});
+    }else if(k.type==="iloc"){
+      // Re-emit the iloc header with a corrected count, then the surviving entries
+      // verbatim (each entry is variable width, so it is sliced out by re-parsing).
+      const bodies=[];let r=k.payload+4;            // skip version/flags
+      const v=sc.iloc.version;
+      r+=2;                                        // offset/length/base/index sizes
+      r+=v<2?2:4;                                  // entry count
+      for(const e of sc.iloc.entries){
+        const at=r;
+        r+=v<2?2:4;
+        if(v===1||v===2)r+=2;
+        r+=2;                                      // data_reference_index
+        if(sc.iloc.header.baseSize)r+=sc.iloc.header.baseSize;
+        const ec=bmU16(bytes,r);r+=2;
+        for(let i=0;i<ec;i++){
+          if((v===1||v===2)&&sc.iloc.header.indexSize)r+=sc.iloc.header.indexSize;
+          r+=sc.iloc.header.offSize+sc.iloc.header.lenSize;
+        }
+        bodies.push({id:e.id,data:bytes.subarray(at,Math.min(r,k.end))});
+      }
+      const keepBodies=bodies.filter(x=>!drop.has(x.id));
+      // 8 bytes of size+type header, then the FullBox version/flags, the two field-width
+      // bytes and the entry count, then the surviving entries copied verbatim.
+      const total=8+4+2+(v<2?2:4)+keepBodies.reduce((a,x)=>a+x.data.length,0);
+      const buf=new Uint8Array(total);let p=0;
+      buf.set(bytes.subarray(k.start,k.payload),p);p+=8;    // size + 'iloc'
+      buf.set(bytes.subarray(k.payload,k.payload+6),p);p+=6;// version/flags + widths
+      if(v<2){buf[p]=keepBodies.length>>8;buf[p+1]=keepBodies.length&255;p+=2;}
+      else{bmPut32(buf,p,keepBodies.length);p+=4;}
+      for(const x of keepBodies){buf.set(x.data,p);p+=x.data.length;}
+      bmPut32(buf,0,p);                                   // the box's own size must match
+      parts.push({box:k,size:p,data:buf});
+    }else if(k.type==="iref"&&drop.size){
+      // A reference left pointing at a removed item makes strict readers reject the file.
+      const v=bytes[k.payload];
+      const kidsRef=bmBoxes(bytes,k.payload+4,k.end);
+      const kept=[];
+      for(const rf of kidsRef){
+        const hdrLen=rf.payload-rf.start;
+        let r=rf.payload;
+        const fromID=v===0?bmU16(bytes,r):bmU32(bytes,r);r+=v===0?2:4;
+        if(drop.has(fromID))continue;
+        const cnt=bmU16(bytes,r);r+=2;
+        const tos=[];
+        for(let i=0;i<cnt;i++){const t=v===0?bmU16(bytes,r):bmU32(bytes,r);r+=v===0?2:4;if(!drop.has(t))tos.push(t);}
+        if(!tos.length)continue;
+        const body=new Uint8Array(rf.size);
+        body.set(bytes.subarray(rf.start,rf.payload),0);
+        let p=hdrLen;
+        if(v===0){body[p]=fromID>>8;body[p+1]=fromID&255;p+=2;}
+        else{bmPut32(body,p,fromID);p+=4;}
+        body[p]=tos.length>>8;body[p+1]=tos.length&255;p+=2;
+        for(const t of tos){if(v===0){body[p]=t>>8;body[p+1]=t&255;p+=2;}else{bmPut32(body,p,t);p+=4;}}
+        const trimmed=body.subarray(0,p);
+        bmPut32(trimmed,0,trimmed.length);
+        kept.push(trimmed);
+      }
+      if(kept.length){
+        const total=8+kept.reduce((a,x)=>a+x.length,0);
+        const buf=new Uint8Array(total);
+        buf.set(bytes.subarray(k.start,k.payload),0);
+        let p=8;for(const x of kept){buf.set(x,p);p+=x.length;}
+        bmPut32(buf,0,total);
+        parts.push({box:k,size:total,data:buf});
+      }
+      // else: every reference pointed at removed items, so the box disappears entirely
+    }else{
+      parts.push({box:k,size:k.size,data:bytes.subarray(k.start,k.end)});
+    }
+  }
+  // 5. Fit the rebuilt children back into the original meta region. Keeping meta's
+  //    declared size fixed means every following box, `mdat` included, stays where it is;
+  //    any shortfall is absorbed by a `free` box, which every BMFF reader skips.
+  const contentSize=parts.reduce((a,p)=>a+p.size,0);
+  const contentStart=sc.metaKidsAt;
+  const shrink=sc.meta.end-contentStart-contentSize;        // room left inside meta
+  if(shrink<0)throw new Error("Rebuilt BMFF item table would not fit; left untouched rather than risk the image.");
+  if(shrink>0&&shrink<8)throw new Error("Rebuilt BMFF item table leaves no room for padding; left untouched rather than risk the image.");
+  let p=contentStart;
+  for(const part of parts){out.set(part.data,p);p+=part.size;}
+  // `shrink` is the number of spare bytes; a box's size field includes its own 8-byte
+  // header, so the padding box's size is exactly `shrink` and it fills the gap.
+  if(shrink>=8){out.fill(0,p,p+shrink);out.set([0x66,0x72,0x65,0x65],p+4);bmPut32(out,p,shrink);}
+  for(const r of zeroRanges)if(r[1]>r[0]&&r[0]>=0&&r[1]<=out.length)out.fill(0,r[0],r[1]);
+
+  // 6. Re-verify: the table still parses, no carrier survives, image bytes are untouched.
+  const check=scanBMFFFile(out);
+  if(check.err)throw new Error("Cleaned file failed its own structural check: "+check.err);
+  for(const it of check.iinf.items){
+    const t=it.type||"";
+    if(t==="Exif"&&exifOn)throw new Error("Exif item survived cleaning");
+    if(t==="mime"&&/rdf\+xml|application\/xml/i.test(it.contentType||it.name||"")&&o.xmp)
+      throw new Error("XMP item survived cleaning");
+  }
+  if(check.uuids.some(u=>u.kind==="c2pa"))throw new Error("C2PA box survived cleaning");
+  for(const r of keepRanges){
+    if(r[1]<=r[0])continue;
+    for(let i=r[0];i<r[1];i++)if(out[i]!==bytes[i])throw new Error("Image data was modified");
+  }
+  if(drop.size)notes.push("Rewrote the item table; the encoded image itself was not re-encoded.");
+  return{bytes:out,log,notes,method:"lossless"};
+}
+
+/* ============================== JPEG XL ============================== */
+// A JPEG XL image is either a bare codestream or a container of ISO-BMFF-style boxes
+// (identical size+type framing to BMFF, so bmBoxes is reused). Metadata lives in
+// dedicated boxes: "Exif", "xml " (XMP) and "jumb" (JUMBF / C2PA), each optionally
+// wrapped in a Brotli-compressed "brob" box.
+//
+// The container stores no absolute file offsets -- every box is self-describing and the
+// decoder simply walks them -- so removing a box is just leaving it out. The surviving
+// boxes are concatenated verbatim, which keeps the codestream byte-identical.
+// Per ISO 18181-2 the "JXL " signature box must come first (12 bytes) and "ftyp" second,
+// and both are preserved; a "brob" box's payload begins with the 4 bytes of the type it
+// wraps, so compression never has to be undone to recognise metadata.
+const JXL_META_TYPES=new Set(["Exif","xml ","jumb"]);
+function jxlWrapType(b,box){
+  // A "brob" box holds the type it wraps uncompressed in its first 4 bytes.
+  if(box.type!=="brob"||box.payload+4>box.end)return null;
+  return bmStr(b,box.payload,4);
+}
+function scanJXLFile(b){
+  if(b.length>=2&&b[0]===0xFF&&b[1]===0x0A){
+    // Bare codestream: no container, so no metadata boxes at all.
+    return{bare:true,boxes:[],err:undefined};
+  }
+  if(b.length<12||bmStr(b,4,4)!=="JXL ")return{err:"Not a JPEG XL file"};
+  if(b[8]!==0x0D||b[9]!==0x0A||b[10]!==0x87||b[11]!==0x0A)
+    return{err:"JPEG XL signature bytes are wrong"};
+  const boxes=bmBoxes(b,0,b.length);
+  if(!boxes.length||boxes[0].type!=="JXL ")return{err:"JPEG XL signature box is missing"};
+  if(boxes.length<2||boxes[1].type!=="ftyp")return{err:"JPEG XL file type box is missing"};
+  const codestream=boxes.filter(x=>x.type==="jxlc"||x.type==="jxlp");
+  if(!codestream.length)return{err:"JPEG XL file has no image codestream"};
+  // Walked boxes must account for the whole file, or the framing is not trustworthy.
+  const covered=boxes.reduce((a,x)=>a+x.size,0);
+  if(covered!==b.length)return{err:"JPEG XL box framing does not cover the file"};
+  const meta=[];
+  for(const x of boxes){
+    if(JXL_META_TYPES.has(x.type))meta.push({box:x,kind:x.type==="Exif"?"exif":x.type==="xml "?"xmp":"c2pa",compressed:false});
+    else{
+      const inner=jxlWrapType(b,x);
+      if(inner&&JXL_META_TYPES.has(inner))
+        meta.push({box:x,kind:inner==="Exif"?"exif":inner==="xml "?"xmp":"c2pa",compressed:true});
+    }
+  }
+  return{bare:false,boxes,codestream,meta,err:undefined};
+}
+function cleanJXL(bytes,o){
+  const sc=scanJXLFile(bytes);
+  if(sc.err)throw new Error(sc.err+" — this file is left untouched rather than re-encoded.");
+  const log=[],notes=[];
+  if(sc.bare){
+    notes.push("This is a bare JPEG XL codestream with no container, so it carries no metadata boxes.");
+    return{bytes:bytes.slice(),log,notes,method:"lossless"};
+  }
+  const drop=new Set();
+  for(const m of sc.meta){
+    if(m.kind==="exif"){if(o.gps||o.camera||o.time||o.author||o.thumb)drop.add(m.box.start);}
+    else if(m.kind==="xmp"){if(o.xmp)drop.add(m.box.start);}
+    else drop.add(m.box.start);                       // C2PA/ JUMBF always goes
+  }
+  if(!drop.size){
+    notes.push("No recognized metadata carriers were present in this file.");
+    return{bytes:bytes.slice(),log,notes,method:"lossless"};
+  }
+  for(const m of sc.meta){
+    if(!drop.has(m.box.start))continue;
+    log.push({kind:m.kind,action:"remove",size:m.box.size,
+      name:(m.kind==="exif"?"Exif box":m.kind==="xmp"?"XMP (\u0022xml \u0022) box":"JUMBF / C2PA box")+(m.compressed?" (Brotli-wrapped)":"")});
+  }
+  // Rebuild by concatenation: no offsets need patching anywhere in the container.
+  const kept=sc.boxes.filter(x=>!drop.has(x.start));
+  const total=kept.reduce((a,x)=>a+x.size,0);
+  const out=new Uint8Array(total);
+  let p=0;for(const x of kept){out.set(bytes.subarray(x.start,x.end),p);p+=x.size;}
+
+  // Re-verify: framing still covers the file, signature/ftyp still lead, no metadata
+  // survives, and the codestream bytes are untouched.
+  const check=scanJXLFile(out);
+  if(check.err)throw new Error("Cleaned JPEG XL failed its own structural check: "+check.err);
+  if(check.meta.length)throw new Error("Recognized metadata survived JPEG XL cleaning");
+  if(check.boxes[0].type!=="JXL "||check.boxes[1].type!=="ftyp")
+    throw new Error("JPEG XL signature boxes were disturbed");
+  const before=new Map(sc.codestream.map(x=>[x.type,x]));
+  for(const c of check.codestream){
+    const was=before.get(c.type);
+    if(!was)throw new Error("JPEG XL codestream box went missing");
+    if(c.size!==was.size)throw new Error("JPEG XL codestream was resized");
+    for(let i=0;i<c.size;i++)
+      if(out[c.start+i]!==bytes[was.start+i])throw new Error("JPEG XL codestream was modified");
+  }
+  if(sc.codestream.length!==check.codestream.length)throw new Error("JPEG XL codestream box count changed");
+  notes.push("Removed "+drop.size+" metadata box"+(drop.size===1?"":"es")+"; the codestream was copied byte for byte.");
+  return{bytes:out,log,notes,method:"lossless"};
+}
+
+/* ============================== BMP (BITMAPV5HEADER) ============================== */
+// A bitmap has no metadata chunks at all. The only thing it can carry is an embedded ICC
+// colour profile, which lives in the separate V5 header as an offset/size pair pointing
+// at a profile blob. That blob is the only removable carrier, so BMP is cleaned by
+// dropping the profile rather than by rewriting the file.
+//
+// The profile blob sits between the headers and the pixel array, so removing it means
+// moving the pixels down. Both pointers are updated (PixelOffset in the file header and
+// the profile fields in the V5 header) and the file size is corrected, which keeps every
+// structural invariant a decoder checks.
+const BMP_DIB_V5=124;
+function scanBMPFile(b){
+  if(b.length<26||b[0]!==0x42||b[1]!==0x4D)return{err:"Not a BMP file"};
+  const fileSize=u32(b,2,true);
+  const pixelOffset=u32(b,10,true);
+  const dib=u32(b,14,true);
+  if(dib<12||14+dib>b.length)return{err:"BMP header size is not valid"};
+  if(pixelOffset<14+dib||pixelOffset>b.length)return{err:"BMP pixel offset is out of range"};
+  const w=u32(b,18,true),hRaw=u32(b,22,true);
+  const h=hRaw>0x7FFFFFFF?0x100000000-hRaw:hRaw;      // top-down bitmaps store a negative height
+  const bpp=u16(b,28,true);
+  const compression=dib>=40?u32(b,30,true):0;
+  let profile=null;
+  if(dib>=BMP_DIB_V5&&14+BMP_DIB_V5<=b.length){
+    const pOff=u32(b,14+112,true),pSize=u32(b,14+116,true);
+    if(pSize>0&&pOff>=14+dib&&pOff+pSize<=b.length)profile={off:pOff,size:pSize};
+  }
+  return{dib,fileSize,pixelOffset,w,h,bpp,compression,profile,err:undefined};
+}
+function cleanBMP(bytes,o){
+  const sc=scanBMPFile(bytes);
+  if(sc.err)throw new Error(sc.err+" — this file is left untouched rather than re-encoded.");
+  const log=[],notes=[];
+  // The only carrier is the colour profile, so it is kept or dropped with the ICC toggle.
+  if(!sc.profile||o.keepICC){
+    notes.push(sc.profile?"The embedded colour profile was kept, as requested."
+      :"A bitmap can only carry an embedded colour profile, and this one has none.");
+    return{bytes:bytes.slice(),log,notes,method:"lossless"};
+  }
+  const {off,size}=sc.profile;
+  const out=new Uint8Array(bytes.length-size);
+  out.set(bytes.subarray(0,off),0);                       // headers, up to the profile
+  out.set(bytes.subarray(off+size),off);                  // pixels slide down into the gap
+  const dv=new DataView(out.buffer,out.byteOffset,out.byteLength);
+  dv.setUint32(2,out.length,true);                        // correct the file size
+  dv.setUint32(10,sc.pixelOffset-size,true);              // pixels now start `size` earlier
+  dv.setUint32(14+112,0,true);                            // bV5ProfileData
+  dv.setUint32(14+116,0,true);                            // bV5ProfileSize
+  log.push({kind:"icc",action:"remove",size,name:"Embedded ICC colour profile (V5 header)"});
+
+  // Re-verify: the file still parses, the profile pointer is gone, and every pixel byte
+  // is exactly as it was, just relocated.
+  const check=scanBMPFile(out);
+  if(check.err)throw new Error("Cleaned BMP failed its own structural check: "+check.err);
+  if(check.profile)throw new Error("Colour profile survived BMP cleaning");
+  if(check.pixelOffset!==sc.pixelOffset-size)throw new Error("BMP pixel offset was not corrected");
+  if(check.fileSize!==out.length)throw new Error("BMP file size was not corrected");
+  if(check.w!==sc.w||check.h!==sc.h||check.bpp!==sc.bpp||check.dib!==sc.dib)
+    throw new Error("BMP image geometry changed");
+  const oldPx=bytes.subarray(sc.pixelOffset),newPx=out.subarray(check.pixelOffset);
+  if(oldPx.length!==newPx.length)throw new Error("BMP pixel data length changed");
+  for(let i=0;i<oldPx.length;i++)
+    if(oldPx[i]!==newPx[i])throw new Error("BMP pixel data was modified");
+  notes.push("Removed the embedded colour profile; pixels were moved down and both offsets corrected.");
+  return{bytes:out,log,notes,method:"lossless"};
 }
 
 /* ============================== ZIP ============================== */
@@ -1045,7 +1923,12 @@ function render(){
     const desc=esc(it.analysis.format)+" · "+fmtBytes(it.size)+(size?" → "+size:"");
     const note=it.status==="done"?"Verified clean · "+ (it.result.method==="lossless"?(it.analysis.flags.icc?"color profile removed; colors may vary":"original image data preserved"):it.result.method==="text"?"vector safety pass":"browser re-encode"):
       it.status==="work"?"Cleaning securely…":it.status==="error"?"Could not clean · "+esc(it.error||"unsupported image"):"Ready to clean";
-    row.innerHTML='<img class="thumb" alt="" src="'+it.url+'"><div class="file-data"><div class="filename" title="'+esc(it.name)+'">'+esc(it.name)+'</div><div class="details">'+desc+'</div><div class="status '+(it.status==="error"?"error":it.status==="work"?"working":"")+'">'+(it.status==="done"?'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>':"")+note+'</div>'+(it.status==="work"?'<div class="progress"></div>':"")+'</div><div class="file-actions"></div>';
+    // Browsers cannot decode TIFF or HEIC into an <img>, so those get a labelled tile
+    // instead of a broken-image icon; the row still reports real dimensions.
+    const thumbHtml=THUMB_OK.includes(it.analysis.format)
+      ? '<img class="thumb" alt="" src="'+it.url+'">'
+      : '<div class="thumb thumb-none" aria-hidden="true" title="'+esc(it.analysis.format)+' · no browser preview">'+esc(it.analysis.format.slice(0,4))+'</div>';
+    row.innerHTML=thumbHtml+'<div class="file-data"><div class="filename" title="'+esc(it.name)+'">'+esc(it.name)+'</div><div class="details">'+desc+'</div><div class="status '+(it.status==="error"?"error":it.status==="work"?"working":"")+'">'+(it.status==="done"?'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>':"")+note+'</div>'+(it.status==="work"?'<div class="progress"></div>':"")+'</div><div class="file-actions"></div>';
     const actions=row.querySelector(".file-actions");
     if(it.status==="done"){
       const dl=document.createElement("button");dl.type="button";dl.className="mini";dl.textContent="Download";dl.setAttribute("aria-label","Download cleaned "+it.name);dl.dataset.fid=it.id;dl.dataset.fkind="download";dl.onclick=()=>downloadIt(it);actions.appendChild(dl);
@@ -1075,7 +1958,7 @@ async function addFiles(list){
     try{
       const bytes=new Uint8Array(await f.arrayBuffer());
       const analysis=analyze(bytes,f.type,f.name);
-      const detected={JPEG:"image/jpeg",PNG:"image/png",WEBP:"image/webp",GIF:"image/gif",SVG:"image/svg+xml",BMP:"image/bmp",TIFF:"image/tiff",AVIF:"image/avif",HEIC:"image/heic"};
+      const detected={JPEG:"image/jpeg",PNG:"image/png",WEBP:"image/webp",GIF:"image/gif",SVG:"image/svg+xml",BMP:"image/bmp",TIFF:"image/tiff",JXL:"image/jxl",AVIF:"image/avif",HEIC:"image/heic"};
       const it={id:uid(),ord:++S.seq,name:f.name,size:f.size,bytes,analysis,mime:detected[analysis.format]||f.type||"application/octet-stream",url:URL.createObjectURL(f),status:"ready",result:null,error:null,ack:false};
       S.files.push(it);used+=f.size;added++;
     }catch(e){toast("Could not read "+esc(f.name)+".","err");}

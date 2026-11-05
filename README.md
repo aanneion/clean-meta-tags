@@ -8,8 +8,8 @@ Open [`index.html`](index.html), choose or drop images, and download the cleaned
 
 - **Private by design:** Processing happens on your device. The page does not upload your images or call a cleaning API.
 - **AI-tag removal is not optional:** Recognized C2PA/Content Credentials and XMP-based provenance metadata are stripped by default, with no toggle to keep them. This also removes authenticity credentials from non-AI images.
-- **More than EXIF:** Targets GPS, timestamps, camera and author fields, embedded thumbnails, comments, IPTC/XMP, color profiles, PNG text and ancillary metadata, and common container-specific provenance carriers.
-- **No needless re-encoding for core formats:** JPEG, PNG, WebP, and GIF cleaning preserves their compressed image data while rewriting/removing metadata structures. An orientation tag may be retained where needed to display a photo upright.
+- **More than EXIF:** Targets GPS, timestamps, camera and author fields, embedded thumbnails, comments, IPTC/XMP, color profiles, PNG text and ancillary metadata, and the container-specific provenance carriers — C2PA in JPEG, PNG, WebP, GIF, TIFF/DNG (tag `0xCD41`), AVIF/HEIC (the BMFF `uuid` box) and JPEG XL (the `jumb` box).
+- **No needless re-encoding, in any supported format:** JPEG, PNG, WebP, GIF, TIFF/DNG, AVIF, HEIC/HEIF, JPEG XL and BMP are all cleaned by rewriting or removing metadata structures while the compressed image data is copied byte for byte. An orientation tag may be retained where needed to display a photo upright.
 - **Checks the result:** Re-scans cleaned files for recognized leftover metadata and blocks downloads when that check fails. PNG chunk checksums are validated before cleaning.
 - **Easy batch export:** Up to 25 images, 50 MiB per file and 200 MiB per queue; download individually or as a ZIP. Exported files use generic names instead of potentially revealing original filenames.
 - **The list is transient:** A file leaves the queue the moment it is downloaded successfully — its row animates out, its blob URL is revoked and its decoded bytes are released. **Download all as ZIP** clears every file it saved the same way, and **Clear all** does it on demand. Nothing you have already saved stays on the page.
@@ -39,20 +39,26 @@ Share your **deployed site's URL** (for example, your GitHub Pages URL) to show 
 | PNG | Chunk-level removal | Includes `caBX` C2PA, `eXIf`, text/XMP, time, ICC and other nonessential ancillary chunks; checks chunk CRCs. |
 | WebP | RIFF chunk-level removal | Includes `C2PA`/`JUMB`, EXIF, XMP, ICC and unrecognized auxiliary chunks; rewrites RIFF size. |
 | GIF | Extension-level removal | Removes comments and non-looping application extensions while retaining image frames and animation looping. |
+| TIFF / TIF / DNG | In-place directory editing | Removes Exif/GPS/Interop sub-trees, XMP, IPTC-NAA, C2PA (`0xCD41`), Photoshop IRB, PrintIM, XP* strings and optionally ICC. Strip and tile data never move, so no offset is patched; a metadata-only or thumbnail directory is dropped whole, and multi-page files keep every page. BigTIFF is refused by name. |
+| AVIF / HEIC / HEIF | Item-table rewrite | Removes the Exif and XMP items, C2PA `uuid` boxes and their payload bytes. The encoded image item is untouched and the container length is unchanged. |
+| JPEG XL | Box removal | Removes `Exif`, `xml ` (XMP) and `jumb` (C2PA) boxes, including Brotli-wrapped (`brob`) ones, and keeps the codestream byte-identical. |
+| BMP | V5 header profile removal | A bitmap's only metadata carrier is its embedded ICC profile, which is removed with both offsets corrected. No EXIF/XMP/C2PA exist in BMP. |
 | SVG | XML sanitization | Removes metadata, comments, editor namespaces, scripts, external content and unsafe elements; visual output can change. |
-| Other browser-decodable images (for example BMP, TIFF, AVIF or HEIC) | Decode and export as PNG | Availability depends on browser support. Re-encoding can change appearance and may not preserve multiple frames or pages. |
+| Other browser-decodable images | Decode and export as PNG | Last resort only. Re-encoding can change appearance and may not preserve multiple frames or pages. |
+
+A JPEG XL *codestream* with no surrounding container, and BigTIFF, cannot be edited safely. Those are refused with an explanation instead of being re-encoded.
 
 ## Important limitations
 
 CleanMetaTags removes **recognized file metadata**, not information visibly embedded in pixels, steganographic content, every proprietary tag, or any external record of an image's history. Removing C2PA credentials does **not** establish whether an image is or is not AI-generated. For sensitive images, review the exported file before sharing it.
 
-Color profiles are removed for stronger metadata minimization, so colors may look different in some viewers. For browser-re-encoded formats, byte- or pixel-identical output is not guaranteed. GIF plain-text graphic blocks and JPEG Adobe color-transform information may be preserved where needed for rendering.
+Color profiles are removed for stronger metadata minimization, so colors may look different in some viewers. Every supported format is cleaned losslessly; only formats that reach the final decode-and-export fallback are re-encoded, and then pixel-identical output is not guaranteed. GIF plain-text graphic blocks and JPEG Adobe color-transform information may be preserved where needed for rendering.
 
 The GitHub link in the footer is a voluntary external link; **image processing itself makes no network requests**.
 
 ## Tests
 
-The byte-engine test suite covers EXIF rebuilding, JPEG inter-scan and trailing metadata, PNG integrity and metadata chunks, WebP RIFF/C2PA handling, GIF comments, mandatory AI-tag removal, output checks, and ZIP creation. It has **no dependencies**:
+The byte-engine test suite covers EXIF rebuilding, JPEG inter-scan and trailing metadata, PNG integrity and metadata chunks, WebP RIFF/C2PA handling, GIF comments, TIFF/DNG directory editing (both byte orders, compressed variants, multi-page, thumbnail and metadata-only directories, BigTIFF refusal), AVIF/HEIC item-table rewrites, JPEG XL box removal, BMP profile removal, mandatory AI-tag removal, output checks, and ZIP creation. It has **no dependencies**:
 
 ```bash
 node tests/engine.test.cjs
