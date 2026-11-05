@@ -106,6 +106,144 @@ const animatedComment=get('concat')([plainGif.subarray(0,gifStart),gifLoop,com('
 assert.deepEqual(Array.from(get('cleanGIF')(animatedComment,opts).bytes),Array.from(animated),'comment stripped from an animated GIF without touching frames, GCEs or loop');
 const staticTransparent=get('concat')([plainGif.subarray(0,gifStart),gifGce,gifFrame,gifTail]);
 assert.deepEqual(Array.from(get('cleanGIF')(get('concat')([plainGif.subarray(0,gifStart),gifGce,gifFrame,com('hi'),gifTail]),opts).bytes),Array.from(staticTransparent),'static GIF with transparency keeps its GCE and pixel data');
+/* ---------------- standalone TIFF / DNG ---------------- */
+// Fixtures are written by a small classic-TIFF writer rather than buildTIFF, because a
+// photo TIFF has to look like the real thing: image structure and metadata sharing one
+// directory, with strip data addressed by absolute offset -- exactly the layout the
+// in-place cleaner must leave undisturbed.
+function makeTIFF({le=true,meta=[],thumb=false,c2paIFD=false}={}){
+  const chunks=[];let len=8;
+  const put=(u8)=>{const at=len;chunks.push(u8.slice());len+=u8.length;return at;};
+  const u16b=(v)=>le?Uint8Array.of(v&255,v>>8&255):Uint8Array.of(v>>8&255,v&255);
+  const u32b=(v)=>{const a=new Uint8Array(4);const q=le?[0,8,16,24]:[24,16,8,0];q.forEach((s,i)=>a[i]=(v>>>s)&255);return a;};
+  const a16=(s)=>Uint8Array.from([...enc.encode(s),0]);
+  const px=Uint8Array.from([10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240]);
+  const pxAt=put(px);
+  const writeIFD=(tags)=>{
+    const prep=tags.map(t=>{
+      const bytes=t.raw?t.raw:(t.type===4?u32b(t.vals[0]):t.type===3?Uint8Array.from(t.vals.flatMap(v=>Array.from(u16b(v)))):Uint8Array.from(t.vals));
+      const count=t.raw?t.raw.length:t.vals.length;
+      return{tag:t.tag,type:t.type,bytes,count,inline:bytes.length<=4};
+    });
+    for(const t of prep)if(!t.inline){t.at=put(t.bytes);}
+    const off=put(new Uint8Array(2+prep.length*12+4));
+    const buf=chunks[chunks.length-1];
+    buf.set(u16b(prep.length),0);
+    prep.forEach((t,i)=>{
+      const p=2+i*12;
+      buf.set(u16b(t.tag),p);buf.set(u16b(t.type),p+2);buf.set(u32b(t.count),p+4);
+      if(t.inline)buf.set(t.bytes,p+8);else buf.set(u32b(t.at),p+8);
+    });
+    return off;
+  };
+  const strip=[[0x0100,4,[4]],[0x0101,4,[2]],[0x0102,3,[8,8,8]],[0x0103,3,[1]],
+    [0x0106,3,[2]],[0x0111,4,[pxAt]],[0x0116,4,[2]],[0x0117,4,[px.length]],[0x0115,3,[3]]];
+  const flat=tags=>tags.map(t=>Array.isArray(t)?{tag:t[0],type:t[1],vals:t[2]}:t);
+  const ifd0At=writeIFD(flat([...strip,...meta]));
+  let ifd1At=0,c2paAt=0;
+  if(thumb){
+    const tpx=Uint8Array.from([1,2,3,4,5,6,7,8,9,10,11,12]);
+    const tpxAt=put(tpx);
+    ifd1At=writeIFD(flat([[0x00FE,4,[1]],[0x0100,4,[2]],[0x0101,4,[2]],[0x0102,3,[8,8,8]],
+      [0x0103,3,[1]],[0x0106,3,[2]],[0x0111,4,[tpxAt]],[0x0116,4,[2]],[0x0117,4,[tpx.length]],
+      {tag:0x0131,type:2,raw:a16('THUMB-SECRET')}]));
+  }
+  if(c2paIFD){
+    c2paAt=writeIFD(flat([{tag:0xCD41,type:7,raw:Uint8Array.from([...enc.encode('C2PA-LAST-IFD'),0,0,0,0])}]));
+  }
+  const head=new Uint8Array(8);
+  head[0]=head[1]=le?0x49:0x4D;
+  head.set(u16b(42),2);head.set(u32b(ifd0At),4);
+  const out=new Uint8Array(len);
+  out.set(head,0);
+  let p=8;for(const c of chunks){out.set(c,p);p+=c.length;}
+  const n0=le?out[ifd0At]|out[ifd0At+1]<<8:out[ifd0At]<<8|out[ifd0At+1];
+  const nextSlot=ifd0At+2+n0*12;
+  if(ifd1At){out.set(u32b(ifd1At),nextSlot);if(c2paAt){const n1=le?out[ifd1At]|out[ifd1At+1]<<8:out[ifd1At]<<8|out[ifd1At+1];out.set(u32b(c2paAt),ifd1At+2+n1*12);}}
+  else if(c2paAt)out.set(u32b(c2paAt),nextSlot);
+  return{bytes:out,pxAt,px};
+}
+const A16=s=>({tag:0,type:2,raw:Uint8Array.from([...enc.encode(s),0])});
+const META=[
+  {...A16('SECRET-DESC'),tag:0x010E},
+  {...A16('SECRETCAM'),tag:0x010F},
+  {...A16('SECRET-SOFTWARE'),tag:0x0131},
+  {...A16('SECRET-ARTIST'),tag:0x013B},
+  {...A16('2026:01:02 03:04:05'),tag:0x0132},
+  {tag:0x02BC,type:1,raw:Uint8Array.from([...enc.encode('XMP-MARKER trainedAlgorithmicMedia'),0])},
+  {tag:0x83BB,type:1,raw:Uint8Array.from([...enc.encode('IPTC-MARKER'),0])},
+  {tag:0xCD41,type:7,raw:Uint8Array.from([...enc.encode('C2PA-MARKER-BLOCK'),0])}
+];
+const has=(u8,s)=>Buffer.from(u8).includes(Buffer.from(s));
+
+// 1. Every carrier is erased, structure and pixels are untouched, verify gate stays open.
+for(const le of [true,false]){
+  const {bytes,pxAt,px}=makeTIFF({le,meta:META});
+  assert.equal(get('scanTIFFFile')(bytes).err,undefined,'well-formed TIFF must scan cleanly');
+  const A=get('analyze')(bytes,'image/tiff','p.tiff');
+  assert.equal(A.format,'TIFF');assert.equal(A.w,4);assert.equal(A.h,2);
+  assert.ok(A.flags.c2pa,'C2PA tag 0xCD41 must be reported');
+  assert.ok(A.flags.xmp,'XMP tag must be reported');
+  assert.ok(A.flags.iptc,'IPTC tag must be reported');
+  assert.ok(A.aiHints.length,'the C2PA store must raise an AI/provenance hint');
+  // structural tags must not be reported as personal data, or every download is blocked
+  assert.equal(A.exifTags.filter(t=>t.cat!=='sys'&&t.cat!=='orient').length,8,
+    'only the eight real metadata tags may count; image structure must classify as sys');
+  const {bytes:out,log}=get('cleanTIFF')(bytes,opts);
+  for(const s of ['SECRET-DESC','SECRETCAM','SECRET-SOFTWARE','SECRET-ARTIST','2026:01:02','XMP-MARKER','IPTC-MARKER','C2PA-MARKER-BLOCK'])
+    assert.equal(has(out,s),false,'TIFF carrier must be erased, not merely unreferenced: '+s);
+  assert.equal(out.length,bytes.length,'lossless TIFF cleaning must not change the file length');
+  const after=get('scanTIFFFile')(out);
+  assert.equal(after.err,undefined,'cleaned TIFF must still parse');
+  assert.equal(after.ifds.length,1,'the single image directory must survive');
+  const so=after.ifds[0].entries.find(e=>e.tag===0x0111);
+  assert.ok(so,'StripOffsets must survive');
+  assert.equal(get('tifVals')(out,le,so)[0],pxAt,'StripOffsets must still point at the original pixel data');
+  assert.deepEqual(Array.from(out.subarray(pxAt,pxAt+px.length)),Array.from(px),'TIFF pixel data must be byte-identical');
+  // the verify gate re-analyzes the output: nothing may be left to block the download
+  const A2=get('analyze')(out,'image/tiff','p.tiff');
+  assert.equal(A2.exifTags.filter(t=>t.cat!=='sys'&&t.cat!=='orient').length,0,'no removable tag may survive into the verify gate');
+  assert.equal(!!(A2.flags.c2pa||A2.flags.xmp||A2.aiHints.length),false,'no provenance signal may survive');
+  assert.ok(log.some(l=>l.kind==='c2pa'),'the removed C2PA store must be logged');
+  assert.ok(log.some(l=>l.kind==='gps'||l.kind==='time'||l.kind==='author'),'removed tags must be logged by kind');
+}
+
+// 2. A metadata-only trailing directory (what c2patool appends) is dropped whole.
+{
+  const {bytes}=makeTIFF({meta:META,c2paIFD:true});
+  assert.equal(get('scanTIFFFile')(bytes).ifds.length,2,'fixture must have two directories');
+  const {bytes:out}=get('cleanTIFF')(bytes,opts);
+  assert.equal(get('scanTIFFFile')(out).ifds.length,1,'a metadata-only directory must be unlinked from the chain');
+  assert.equal(has(out,'C2PA-LAST-IFD'),false,'the trailing C2PA payload must be erased');
+}
+
+// 3. A thumbnail directory is dropped when thumbnails are on, and kept but stripped when off.
+{
+  const {bytes}=makeTIFF({meta:META,thumb:true});
+  assert.equal(get('scanTIFFFile')(bytes).thumbs,1,'the reduced-resolution directory must be recognised as a thumbnail');
+  const on=get('cleanTIFF')(bytes,opts);
+  assert.equal(get('scanTIFFFile')(on.bytes).ifds.length,1,'thumbnail directory removed when thumb removal is on');
+  assert.equal(has(on.bytes,'THUMB-SECRET'),false,'thumbnail metadata must be erased with its directory');
+  const off=get('cleanTIFF')(bytes,{...opts,thumb:false});
+  assert.equal(get('scanTIFFFile')(off.bytes).ifds.length,2,'thumbnail directory kept when thumb removal is off');
+  assert.equal(has(off.bytes,'THUMB-SECRET'),false,'kept thumbnail must still lose its metadata');
+  assert.equal(has(off.bytes,'SECRET-ARTIST'),false,'primary metadata still removed in that mode');
+}
+
+// 4. Unsafe or unsupported inputs are refused by name rather than mangled.
+{
+  const big=makeTIFF({meta:META}).bytes.slice(0,40);
+  big[2]=43;                                                       // BigTIFF magic
+  assert.throws(()=>get('cleanTIFF')(big,opts),/BigTIFF/,'BigTIFF must be refused, not rewritten');
+  assert.throws(()=>get('cleanTIFF')(Uint8Array.of(1,2,3),opts),/Too short|TIFF/,'a runt file must be refused');
+  const loop=makeTIFF({meta:[]}).bytes.slice();
+  // point IFD0's next pointer back at IFD0 itself
+  const i0=loop[4]|loop[5]<<8|loop[6]<<16|loop[7]<<24;    // little-endian header
+  const n0=loop[i0]|loop[i0+1]<<8;
+  loop.set(Uint8Array.of(i0&255,i0>>8&255,i0>>16&255,i0>>24&255),i0+2+n0*12);
+  assert.throws(()=>get('cleanTIFF')(loop,opts),/loops back/,'a cyclic directory chain must be refused');
+}
+
 const z=get('buildZip')([{name:'clean.jpg',data:cleanJ.bytes},{name:'clean.png',data:cleanP.bytes}]);
 assert.ok(z.size>0);
 (async()=>{
