@@ -244,6 +244,366 @@ for(const le of [true,false]){
   assert.throws(()=>get('cleanTIFF')(loop,opts),/loops back/,'a cyclic directory chain must be refused');
 }
 
+/* ---------------- AVIF / HEIC (ISO BMFF) ---------------- */
+// A minimal but structurally real BMFF container: ftyp, a FullBox `meta` holding an item
+// table, an optional C2PA `uuid` box, then mdat with the item payloads.
+function makeBMFF({brand='avif',exif=true,xmp=false,c2pa=false}={}){
+  const box=(type,payload)=>{
+    const b=new Uint8Array(8+payload.length);
+    b[0]=(b.length>>>24)&255;b[1]=(b.length>>>16)&255;b[2]=(b.length>>>8)&255;b[3]=b.length&255;
+    for(let i=0;i<4;i++)b[4+i]=type.charCodeAt(i);
+    b.set(payload,8);
+    return b;
+  };
+  const cat=(list)=>get('concat')(list);
+  const be=(v)=>Uint8Array.of((v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255);
+  const be16=(v)=>Uint8Array.of((v>>8)&255,v&255);
+  const ascii=s=>Uint8Array.from([...enc.encode(s)]);
+  const imageData=Uint8Array.from({length:64},(_,i)=>(i*37)&255);
+  // An Exif item starts with a 4-byte offset to its TIFF header, measured from the end of
+  // that field; 6 skips the following "Exif\0\0".
+  const exifData=cat([be(6),ascii('Exif\0\0'),
+    Uint8Array.from([0x4D,0x4D,0,42,0,0,0,8]),               // big-endian TIFF stub
+    Uint8Array.from([0,1]),                                   // 1 entry
+    Uint8Array.from([0x01,0x0F,0,2,0,0,0,10,0,0,0,26]),       // Make, ASCII, offset 26
+    Uint8Array.from([0,0,0,0]),                               // next IFD
+    ascii('SECRETCAM\0')]);
+  const xmpData=ascii('<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF/></x:xmpmeta>');
+  // item ids: 1 = primary image, 2 = Exif, 3 = XMP
+  const items=[{id:1,type:'av01',name:'Color\0',data:imageData}];
+  if(exif)items.push({id:2,type:'Exif',name:'\0',data:exifData});
+  if(xmp)items.push({id:3,type:'mime',name:'XMP\0application/rdf+xml\0',data:xmpData});
+  const infe=it=>{
+    const nameBytes=ascii(it.name);
+    const p=cat([Uint8Array.from([2,0,0,0]),be16(it.id),be16(0),ascii(it.type),nameBytes]);
+    return box('infe',p);
+  };
+  const iinfBodies=items.map(infe);
+  const iinfPayload=cat([Uint8Array.from([0,0,0,0]),be16(items.length),...iinfBodies]);
+  const iinf=box('iinf',iinfPayload);
+  const pitm=box('pitm',cat([Uint8Array.from([0,0,0,0]),be16(1)]));
+  const hdlr=box('hdlr',cat([Uint8Array.from([0,0,0,0,0,0,0,0]),ascii('pict'),Uint8Array.from([0,0,0,0,0,0,0,0,0])]));
+  const ispe=box('ispe',cat([Uint8Array.from([0,0,0,0]),be(4),be(2)]));
+  const ipco=box('ipco',ispe);
+  const ipma=box('ipma',cat([Uint8Array.from([0,0,0,0]),be(1),be16(1),Uint8Array.from([1,0x81])]));
+  const iprp=box('iprp',cat([ipco,ipma]));
+  // iloc: v0, offset_size=4, length_size=4, base=0. Offsets are absolute, so they are
+  // patched once the mdat position is known.
+  const ilocEntryCount=items.length;
+  const ilocSize=8+4+2+2+items.length*(2+2+2+8);
+  const iloc=new Uint8Array(ilocSize);
+  let p=0;
+  iloc.set(be(ilocSize),p);p+=4;iloc.set(ascii('iloc'),p);p+=4;
+  iloc.set([0,0,0,0],p);p+=4;
+  iloc[p++]=0x44;iloc[p++]=0x00;                              // offset_size=4 len_size=4
+  iloc[p++]=ilocEntryCount>>8;iloc[p++]=ilocEntryCount&255;p+=0;
+  for(const it of items){
+    iloc[p++]=it.id>>8;iloc[p++]=it.id&255;
+    iloc[p++]=0;iloc[p++]=0;                                  // data_reference_index
+    iloc[p++]=0;iloc[p++]=1;                                  // one extent
+    p+=8;                                                     // offset+length, patched below
+  }
+  const metaChildren=cat([hdlr,pitm,iloc,iinf,iprp]);
+  const meta=box('meta',cat([Uint8Array.from([0,0,0,0]),metaChildren]));
+  const ftyp=box('ftyp',cat([ascii(brand),be(0),ascii('mif1'),ascii('miaf')]));
+  const uuidPayload=cat([Uint8Array.from(get('BMFF_C2PA_UUID')),Uint8Array.from([0]),ascii('C2PA-UUID-MARKER')]);
+  const uuidBox=c2pa?box('uuid',uuidPayload):new Uint8Array(0);
+  const ftypLen=ftyp.length,metaLen=meta.length;
+  const mdatStart=ftypLen+metaLen+uuidBox.length+8;
+  // Patch iloc offsets now that mdat's payload position is known. The entry list starts
+  // after the 8-byte box header, the 4-byte version/flags, the 2 width bytes and the
+  // 2-byte entry count.
+  let ip=8+4+2+2;
+  let cursor=mdatStart;
+  for(const it of items){
+    ip+=4;                                                    // skip id + data_ref
+    ip+=2;                                                    // skip extent_count
+    iloc[ip]=(cursor>>>24)&255;iloc[ip+1]=(cursor>>>16)&255;iloc[ip+2]=(cursor>>>8)&255;iloc[ip+3]=cursor&255;
+    iloc[ip+4]=(it.data.length>>>24)&255;iloc[ip+5]=(it.data.length>>>16)&255;
+    iloc[ip+6]=(it.data.length>>>8)&255;iloc[ip+7]=it.data.length&255;
+    ip+=8;cursor+=it.data.length;
+  }
+  const meta2=box('meta',cat([Uint8Array.from([0,0,0,0]),cat([hdlr,pitm,iloc,iinf,iprp])]));
+  const mdat=box('mdat',cat(items.map(i=>i.data)));
+  const all=cat([ftyp,meta2,uuidBox,mdat]);
+  return{bytes:all,imageData,exifData,mdatStart,items};
+}
+
+// 1. AVIF: Exif item removed, image bytes untouched, table rebuilt, length unchanged.
+{
+  const {bytes,imageData}=makeBMFF({exif:true});
+  const scan=get('scanBMFFFile')(bytes);
+  assert.equal(scan.err,undefined,'a well-formed AVIF must scan cleanly');
+  assert.equal(scan.brand,'avif');
+  assert.equal(scan.w,4);assert.equal(scan.h,2);
+  assert.deepEqual(Array.from(scan.iinf.items.map(i=>i.type)),['av01','Exif'],'both items must be listed');
+  const A=get('analyze')(bytes,'image/avif','p.avif');
+  assert.equal(A.format,'AVIF');
+  assert.ok(A.flags.exif,'the Exif item must be reported');
+  assert.ok(A.exifTags.some(t=>t.name==='Make'),'Exif fields must be parsed out of the item');
+  const {bytes:out,log}=get('cleanBMFF')(bytes,opts);
+  const after=get('scanBMFFFile')(out);
+  assert.equal(after.err,undefined,'cleaned AVIF must still parse');
+  assert.deepEqual(Array.from(after.iinf.items.map(i=>i.type)),['av01'],'only the image item may remain');
+  assert.equal(after.iloc.entries.length,1,'the location table must drop the removed item too');
+  assert.equal(out.length,bytes.length,'lossless BMFF cleaning must not change the file length');
+  // the encoded image payload is untouched, byte for byte
+  const imgRange=get('bmItemRanges')(out,after.iloc,after.idat,1);
+  assert.equal(imgRange.length,1);
+  assert.deepEqual(Array.from(out.subarray(imgRange[0][0],imgRange[0][1])),Array.from(imageData),
+    'the compressed image item must be byte-identical');
+  assert.equal(Buffer.from(out).includes(Buffer.from('SECRETCAM')),false,'Exif payload must be erased');
+  assert.ok(log.some(l=>l.kind==='exif'),'the removed Exif item must be logged');
+  const A2=get('analyze')(out,'image/avif','p.avif');
+  assert.equal(A2.exifTags.length,0,'no Exif may survive into the verify gate');
+  assert.equal(!!(A2.flags.c2pa||A2.flags.xmp||A2.aiHints.length),false,'no provenance signal may survive');
+}
+
+// 2. XMP mime item removed.
+{
+  const {bytes}=makeBMFF({exif:false,xmp:true});
+  const scan=get('scanBMFFFile')(bytes);
+  assert.deepEqual(Array.from(scan.iinf.items.map(i=>i.type)),['av01','mime']);
+  const A=get('analyze')(bytes,'image/avif','p.avif');
+  assert.ok(A.flags.xmp,'the XMP mime item must be reported');
+  const {bytes:out}=get('cleanBMFF')(bytes,opts);
+  assert.deepEqual(Array.from(get('scanBMFFFile')(out).iinf.items.map(i=>i.type)),['av01'],'only the image item may remain');
+  assert.equal(out.length,bytes.length);
+}
+
+// 3. C2PA uuid box is replaced by an equally sized `free` box, so nothing moves.
+{
+  const {bytes}=makeBMFF({exif:true,c2pa:true});
+  const scan=get('scanBMFFFile')(bytes);
+  assert.equal(scan.uuids.length,1,'the C2PA uuid box must be recognised');
+  assert.equal(scan.uuids[0].kind,'c2pa');
+  const A=get('analyze')(bytes,'image/avif','p.avif');
+  assert.ok(A.flags.c2pa,'C2PA must be reported');
+  assert.ok(A.aiHints.length,'C2PA must raise an AI/provenance hint');
+  const {bytes:out}=get('cleanBMFF')(bytes,opts);
+  const after=get('scanBMFFFile')(out);
+  assert.equal(after.uuids.length,0,'no C2PA box may survive');
+  const wasFree=bmFindTop(out,'free');
+  assert.ok(wasFree,'the C2PA box must be replaced by a free box');
+  assert.equal(wasFree.size,scan.uuids[0].box.size,'the free box must be exactly the same size');
+  assert.equal(after.meta.start,scan.meta.start,'meta must not move');
+  const mdatBefore=bmFindTop(bytes,'mdat'),mdatAfter=bmFindTop(out,'mdat');
+  assert.equal(mdatAfter.start,mdatBefore.start,'mdat must not move, so item offsets stay valid');
+  assert.equal(out.length,bytes.length);
+  assert.equal(Buffer.from(out).includes(Buffer.from('C2PA-UUID-MARKER')),false,'the manifest must be erased');
+}
+function bmFindTop(b,type){return get('bmBoxes')(b,0,b.length).find(x=>x.type===type);}
+
+// 4. HEIC uses the same item table.
+{
+  const {bytes}=makeBMFF({brand:'heic',exif:true});
+  assert.equal(get('detectFormat')(bytes,'','x.heic'),'HEIC');
+  assert.equal(get('scanBMFFFile')(bytes).brand,'heic');
+  const {bytes:out}=get('cleanBMFF')(bytes,opts);
+  assert.deepEqual(Array.from(get('scanBMFFFile')(out).iinf.items.map(i=>i.type)),['av01']);
+  assert.equal(out.length,bytes.length);
+}
+
+// 5. Refusals: a file with no usable item table is left alone, not mangled.
+{
+  assert.throws(()=>get('cleanBMFF')(Uint8Array.from([0,0,0,8,0x66,0x74,0x79,0x70]),opts),/ftyp|too short|No meta/i);
+  const {bytes}=makeBMFF({exif:true});
+  const broken=bytes.slice(0,60);                            // truncate inside meta
+  assert.throws(()=>get('cleanBMFF')(broken,opts),/left untouched|No meta|item table|too short/i,
+    'a truncated BMFF must be refused rather than rewritten');
+}
+
+/* ---------------- JPEG XL ---------------- */
+// Per ISO 18181-2: a 12-byte "JXL " signature box first, "ftyp" second, then the
+// codestream and any metadata boxes. A "brob" box holds the type it wraps in its first
+// 4 uncompressed bytes, which is how Brotli-wrapped Exif is recognised without inflating.
+function makeJXL({exif=true,xmp=true,c2pa=true,brob=false}={}){
+  const box=(type,payload)=>{
+    const b=new Uint8Array(8+payload.length);
+    b[0]=(b.length>>>24)&255;b[1]=(b.length>>>16)&255;b[2]=(b.length>>>8)&255;b[3]=b.length&255;
+    for(let i=0;i<4;i++)b[4+i]=type.charCodeAt(i);
+    b.set(payload,8);
+    return b;
+  };
+  const cat=list=>get('concat')(list);
+  const ascii=s=>Uint8Array.from([...enc.encode(s)]);
+  const sig=Uint8Array.from([0,0,0,12,...ascii('JXL '),0x0D,0x0A,0x87,0x0A]);
+  const ftyp=box('ftyp',cat([ascii('jxl '),Uint8Array.from([0,0,0,0]),ascii('jxl ')]));
+  const codestream=Uint8Array.from({length:120},(_,i)=>(i*13)&255);
+  const jxlc=box('jxlc',codestream);
+  const parts=[sig,ftyp,jxlc];
+  const exifPayload=cat([Uint8Array.from([0,0,0,0]),ascii('Exif\0\0'),Uint8Array.from([0x4D,0x4D,0,42])]);
+  if(exif)parts.push(brob?box('brob',cat([ascii('Exif'),Uint8Array.from([0x1b,0x06,0x00,0x00,0x99])])):box('Exif',exifPayload));
+  if(xmp)parts.push(box('xml ',ascii('<x:xmpmeta><rdf:RDF/></x:xmpmeta>')));
+  if(c2pa)parts.push(box('jumb',cat([ascii('jumbf'),Uint8Array.from([0,1,0,2])])));
+  return{bytes:cat(parts),codestream,jxlc};
+}
+
+// 1. Every metadata box is removed; signature and codestream are untouched.
+{
+  const {bytes,codestream}=makeJXL({exif:true,xmp:true,c2pa:true});
+  const scan=get('scanJXLFile')(bytes);
+  assert.equal(scan.err,undefined,'a well-formed JXL must scan cleanly');
+  assert.deepEqual(Array.from(scan.boxes.map(x=>x.type)),['JXL ','ftyp','jxlc','Exif','xml ','jumb'],
+    'all boxes must be found in order');
+  assert.deepEqual(Array.from(scan.meta.map(m=>m.kind)),['exif','xmp','c2pa']);
+  const A=get('analyze')(bytes,'image/jxl','p.jxl');
+  assert.equal(A.format,'JXL');
+  assert.ok(A.flags.exif&&A.flags.xmp&&A.flags.c2pa,'Exif, XMP and C2PA must all be reported');
+  assert.ok(A.aiHints.length,'JUMBF must raise an AI/provenance hint');
+  const {bytes:out,log}=get('cleanJXL')(bytes,opts);
+  const after=get('scanJXLFile')(out);
+  assert.equal(after.err,undefined,'cleaned JXL must still parse');
+  assert.equal(after.meta.length,0,'no metadata box may survive');
+  assert.deepEqual(Array.from(after.boxes.map(x=>x.type)),['JXL ','ftyp','jxlc'],
+    'only the signature, file type and codestream boxes may remain');
+  assert.equal(after.boxes[0].type,'JXL ','the mandatory signature box must stay first');
+  assert.equal(after.boxes[1].type,'ftyp','the mandatory file type box must stay second');
+  assert.equal(after.boxes[0].size,12,'the signature box must stay exactly 12 bytes');
+  // the codestream box is copied verbatim, including its header
+  assert.equal(after.codestream[0].size,8+codestream.length);
+  assert.deepEqual(Array.from(out.subarray(after.codestream[0].payload,after.codestream[0].end)),
+    Array.from(codestream),'the JPEG XL codestream must be byte-identical');
+  assert.equal(log.length,3,'all three removed carriers must be logged');
+  const A2=get('analyze')(out,'image/jxl','p.jxl');
+  assert.equal(!!(A2.flags.c2pa||A2.flags.exif||A2.flags.xmp||A2.aiHints.length),false,
+    'no metadata may survive into the verify gate');
+}
+
+// 2. A Brotli-wrapped ("brob") Exif box is recognised and removed without inflating it.
+{
+  const {bytes}=makeJXL({exif:true,xmp:false,c2pa:false,brob:true});
+  const scan=get('scanJXLFile')(bytes);
+  assert.equal(scan.meta.length,1,'a brob box wrapping Exif must be recognised');
+  assert.equal(scan.meta[0].kind,'exif');
+  assert.equal(scan.meta[0].compressed,true);
+  const {bytes:out}=get('cleanJXL')(bytes,opts);
+  assert.equal(get('scanJXLFile')(out).meta.length,0,'the brob-wrapped Exif must be removed');
+  assert.equal(Buffer.from(out).includes(Buffer.from('brob')),false,'the brob box must be gone entirely');
+}
+
+// 3. A bare codestream has no container, so it is returned untouched rather than rebuilt.
+{
+  const bare=Uint8Array.from([0xFF,0x0A,0x04,0x20,0x08,0x4C,0x50,0x00]);
+  assert.equal(get('detectFormat')(bare,'','x.jxl'),'JXL','a bare codestream must be recognised');
+  const r=get('cleanJXL')(bare,opts);
+  assert.deepEqual(Array.from(r.bytes),Array.from(bare),'a bare codestream must be returned unchanged');
+  assert.ok(r.notes.length,'the reason must be explained');
+}
+
+// 4. Refusals: broken framing is never rebuilt.
+{
+  const {bytes}=makeJXL({});
+  assert.throws(()=>get('cleanJXL')(Uint8Array.from([0,0,0,12,0x4A,0x58,0x4C,0x20,0,0,0,0]),opts),
+    /signature|file type|codestream|left untouched/i,'a bad signature must be refused');
+  const noFtyp=bytes.slice(0,12);
+  assert.throws(()=>get('cleanJXL')(noFtyp,opts),/file type|codestream|framing|left untouched/i,
+    'a container without ftyp must be refused');
+  // a box size that runs past the end of the file must not be trusted
+  const overrun=bytes.slice();
+  overrun[32]=(0xFF);
+  assert.throws(()=>get('cleanJXL')(overrun,opts),/framing|codestream|left untouched/i,
+    'a box overrunning the file must be refused');
+}
+
+/* ---------------- BMP (embedded ICC in the V5 header) ---------------- */
+// A bitmap has no metadata chunks; the only removable carrier is the colour profile blob
+// that the V5 header points at. Building one exercises the offset/size pair exactly.
+function makeBMPV5({profile=true,iccLen=256}={}){
+  const le=(v,n)=>{const a=new Uint8Array(n);for(let i=0;i<n;i++)a[i]=(v>>>(i*8))&255;return a;};
+  const cat=list=>get('concat')(list);
+  const w=4,h=2,rowbytes=((w*3+3)>>2)*4;
+  const px=[];
+  for(let y=0;y<h;y++){
+    const row=[];
+    for(let x=0;x<w;x++)row.push((x*30)&255,(y*60)&255,(x*y*7)&255);
+    while(row.length<rowbytes)row.push(0);
+    px.push(...row);
+  }
+  const profileBytes=[];
+  // A stand-in profile with the real 'acsp' signature at offset 36.
+  for(let i=0;i<iccLen;i++)profileBytes.push(i>=36&&i<40?"acsp".charCodeAt(i-36):(i*7)&255);
+  const profileOff=14+124;
+  const pxOff=profileOff+(profile?iccLen:0);
+  const fileSize=pxOff+px.length;
+  const head=cat([
+    enc.encode('BM'),le(fileSize,4),le(0,4),le(pxOff,4),
+    le(124,4),le(w,4),le(h,4),le(1,2),le(24,2),le(0,4),le(px.length,4),
+    le(2835,4),le(2835,4),le(0,4),le(0,4),
+    le(0x00FF0000,4),le(0x0000FF00,4),le(0x000000FF,4),le(0xFF000000,4),
+    le(0x73524742,4),new Uint8Array(36),le(0,4),le(0,4),le(0,4),
+    le(0,4),le(profile?profileOff:0,4),le(profile?iccLen:0,4),le(0,4)
+  ]);
+  return{bytes:cat([head,profile?Uint8Array.from(profileBytes):new Uint8Array(0),Uint8Array.from(px)]),
+    px:Uint8Array.from(px),iccLen};
+}
+
+// 1. The profile is removed, both offsets corrected, pixels preserved.
+{
+  const {bytes,px,iccLen}=makeBMPV5({profile:true});
+  const scan=get('scanBMPFile')(bytes);
+  assert.equal(scan.err,undefined,'a well-formed BMP must scan cleanly');
+  assert.equal(scan.dib,124,'the V5 header must be recognised');
+  assert.equal(scan.w,4);assert.equal(scan.h,2);assert.equal(scan.bpp,24);
+  assert.ok(scan.profile,'the embedded profile must be found');
+  assert.equal(scan.profile.size,iccLen);
+  const A=get('analyze')(bytes,'image/bmp','p.bmp');
+  assert.equal(A.format,'BMP');
+  assert.ok(A.flags.icc,'the embedded profile must be reported');
+  // A bitmap cannot carry EXIF/XMP/C2PA, so nothing else may be reported.
+  assert.equal(!!(A.flags.exif||A.flags.xmp||A.flags.c2pa||A.aiHints.length),false,
+    'a bitmap must not be reported as carrying EXIF, XMP or C2PA');
+  const {bytes:out,log}=get('cleanBMP')(bytes,opts);
+  assert.equal(out.length,bytes.length-iccLen,'the file must shrink by exactly the profile size');
+  const after=get('scanBMPFile')(out);
+  assert.equal(after.err,undefined,'cleaned BMP must still parse');
+  assert.equal(after.profile,null,'the profile must be gone');
+  assert.equal(after.pixelOffset,scan.pixelOffset-iccLen,'the pixel offset must be corrected');
+  assert.equal(after.fileSize,out.length,'the file size field must be corrected');
+  assert.equal(after.w,scan.w);assert.equal(after.h,scan.h);assert.equal(after.bpp,scan.bpp);
+  assert.deepEqual(Array.from(out.subarray(after.pixelOffset)),Array.from(px),
+    'every pixel byte must survive, just relocated');
+  assert.equal(Buffer.from(out).includes(Buffer.from('acsp')),false,'the profile must be erased, not orphaned');
+  assert.ok(log.some(l=>l.kind==='icc'),'the removed profile must be logged');
+  // and it must pass the verify gate
+  const A2=get('analyze')(out,'image/bmp','p.bmp');
+  assert.equal(!!A2.flags.icc,false,'no colour profile may survive into the verify gate');
+}
+
+// 2. With the ICC toggle on, the bitmap is returned untouched.
+{
+  const {bytes}=makeBMPV5({profile:true});
+  const r=get('cleanBMP')(bytes,{...opts,keepICC:true});
+  assert.deepEqual(Array.from(r.bytes),Array.from(bytes),'keep-profile must leave the bitmap untouched');
+  assert.equal(r.log.length,0);
+}
+
+// 3. A bitmap with no profile has nothing to remove and is returned untouched.
+{
+  const {bytes}=makeBMPV5({profile:false});
+  const scan=get('scanBMPFile')(bytes);
+  assert.equal(scan.profile,null);
+  const A=get('analyze')(bytes,'image/bmp','p.bmp');
+  assert.equal(!!A.flags.icc,false,'no profile means no ICC flag');
+  const r=get('cleanBMP')(bytes,opts);
+  assert.deepEqual(Array.from(r.bytes),Array.from(bytes),'nothing to remove means no change');
+  assert.ok(r.notes.length,'the reason must be explained');
+}
+
+// 4. Refusals: a bogus profile pointer is not trusted.
+{
+  assert.throws(()=>get('cleanBMP')(Uint8Array.from([0,1,2,3]),opts),/Not a BMP|left untouched/i);
+  const {bytes}=makeBMPV5({profile:true});
+  const lying=bytes.slice();
+  // claim a profile that runs past the end of the file
+  const dv=new DataView(lying.buffer);
+  dv.setUint32(14+116,0xFFFF,true);
+  const scan=get('scanBMPFile')(lying);
+  assert.equal(scan.profile,null,'an out-of-range profile pointer must be ignored, not followed');
+  const r=get('cleanBMP')(lying,opts);
+  assert.deepEqual(Array.from(r.bytes),Array.from(lying),'an untrustworthy profile pointer means no rewrite');
+}
+
 const z=get('buildZip')([{name:'clean.jpg',data:cleanJ.bytes},{name:'clean.png',data:cleanP.bytes}]);
 assert.ok(z.size>0);
 (async()=>{
@@ -251,5 +611,5 @@ assert.ok(z.size>0);
   const result=await get('cleanItem')(item);
   assert.equal(result.verify.aiLeft,false,'cleaning pipeline must re-scan and reject remaining AI metadata');
   assert.equal(get('scanJPEG')(result.bytes).segs.some(x=>x.kind==='c2pa'),false);
-  console.log('Engine tests passed: EXIF, JPEG, PNG, WebP, GIF, mandatory AI-tag removal, ZIP.');
+  console.log('Engine tests passed: EXIF, JPEG, PNG, WebP, GIF, TIFF/DNG, AVIF/HEIC, JPEG XL, BMP, mandatory AI-tag removal, ZIP.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
