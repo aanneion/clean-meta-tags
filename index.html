@@ -121,7 +121,7 @@ main{padding-bottom:100px}
 .bottom-actions{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin-top:15px}
 .download-all{border:1px solid #176c42;background:#177b4b;color:#fff;font-weight:750;padding:10px 18px;border-radius:10px;box-shadow:0 6px 20px rgba(22,111,68,.13)}
 .download-all:hover{background:#11683f}
-footer{border-top:1px solid var(--line);color:var(--soft);font-size:12px;text-align:center;padding:21px 24px 28px;background:rgba(255,255,255,.38)}
+footer{color:var(--soft);font-size:12px;text-align:center;padding:21px 24px 28px;background:rgba(255,255,255,.38)}
 footer p{margin:0}
 footer .credit{margin-top:8px;color:var(--mut);font-size:12.5px}
 footer .credit a{color:var(--mint);font-weight:700;text-decoration:none;border-bottom:1px solid rgba(23,123,75,.35);padding-bottom:1px;transition:color .15s,border-color .15s}
@@ -669,7 +669,7 @@ function scanGIF(b){
   const subEnd=x=>{while(x<n){const s=b[x];x++;if(s===0)break;x+=s;}return x;};
   while(p<n){
     const t=b[p];
-    if(t===0x21&&p+1<n){const lb=b[p+1];const e=subEnd(p+2+(lb===0xFF||lb===0xFE||lb===0x01||lb===0xF9?(lb===0xF9?6:(lb===0xFF?12:0)):0));
+    if(t===0x21&&p+1<n){const lb=b[p+1];const e=subEnd(p+2+(lb===0xFF||lb===0xFE||lb===0x01||lb===0xF9?(lb===0xF9?5:(lb===0xFF?12:0)):0));
       let kind="core",name="Extension",detail="";
       if(lb===0xF9){name="GCE";detail="Frame control";}
       else if(lb===0xFE){kind="com";name="Comment ext";detail=tdL.decode(b.slice(p+3,Math.min(e,p+90))).replace(/\0/g," ");}

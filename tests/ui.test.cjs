@@ -192,11 +192,23 @@ const rows=()=>$$('.file');
   assert.equal($('#veil').classList.contains('on'),false,'plain-text drags ignored');
   console.log('12. whole-page drag and drop with depth-counted veil');
 
+  // --- SVG sanitisation (needs a DOM, so it lives here, not in the engine suite) ---
+  const svgSrc=enc.encode('<?xml version="1.0"?><!-- secret comment --><svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.0.dtd" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" width="10" height="10"><metadata><rdf:RDF><dc:creator>alice</dc:creator><dc:rights>licensed</dc:rights></rdf:RDF></metadata><sodipodi:namedview inkscape:zoom="2"/><script>alert(1)</script><rect width="10" height="10" fill="#0f0"/></svg>');
+  const svgOut=new w.TextDecoder().decode(get('cleanSVG')(svgSrc).bytes);
+  assert.equal(/<metadata/i.test(svgOut),false,'SVG metadata element removed');
+  assert.equal(svgOut.includes('<!--'),false,'SVG comments removed');
+  assert.equal(/inkscape:|sodipodi:/i.test(svgOut),false,'editor namespaces removed');
+  assert.equal(/<script/i.test(svgOut),false,'script element removed');
+  assert.equal(/alice|licensed/i.test(svgOut),false,'author/licence text removed');
+  assert.ok(/<rect/.test(svgOut),'visible geometry preserved');
+  assert.throws(()=>get('cleanSVG')(enc.encode('<!DOCTYPE svg [<!ENTITY x "y">]><svg xmlns="http://www.w3.org/2000/svg"/>')),/DTD|entities/,'SVG with a DTD/entity is refused, not silently passed through');
+  console.log('13. SVG sanitisation strips metadata, comments, editor NS and scripts; refuses DTDs');
+
   // --- no history pollution ---------------------------------------------
   assert.equal(w.location.hash,'','no hash navigation added');
   assert.equal(w.history.length,1,'downloads add no entries to the session history');
   assert.equal(w.localStorage.length,0,'nothing written to localStorage');
-  console.log('13. no history entries and no localStorage writes');
+  console.log('14. no history entries and no localStorage writes');
 
   assert.deepEqual(errors.filter(ignorable),[],'no script errors during the run: '+errors.join(' | '));
   console.log('\nUI tests passed.');

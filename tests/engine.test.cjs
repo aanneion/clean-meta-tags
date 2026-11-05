@@ -84,6 +84,28 @@ const plainGif=Uint8Array.from(Buffer.from('R0lGODdhAQABAIEAAP8AAAAAAAAAAAAAACwA
 const gifStart=get('scanGIF')(plainGif).bl[0].total;
 const withComment=get('concat')([plainGif.subarray(0,gifStart),Uint8Array.from([0x21,0xFE,6,...enc.encode('AI tag'),0]),plainGif.subarray(gifStart)]);
 assert.deepEqual(Array.from(get('cleanGIF')(withComment,opts).bytes),Array.from(plainGif),'GIF comment removed without altering frames');
+// Regression: a Graphic Control Extension is a fixed 8-byte block (21 F9 04, four
+// data bytes, then a 00 terminator). The scanner used to start walking sub-blocks
+// one byte past that terminator, so it read the next block's introducer (0x2C, i.e.
+// 44) as a sub-block length and swallowed every frame. Any GIF carrying a GCE --
+// nearly all animated GIFs, plus static GIFs with transparency -- failed to clean.
+const gifFrame=plainGif.subarray(gifStart,plainGif.length-1);          // descriptor + LZW data
+const gifTail=plainGif.subarray(plainGif.length-1);                    // 0x3B trailer
+const gifGce=Uint8Array.of(0x21,0xF9,0x04,0x04,0x0A,0x00,0x00,0x00);  // frame delay + transparency index
+const gifLoop=get('concat')([Uint8Array.of(0x21,0xFF,0x0B),enc.encode('NETSCAPE2.0'),Uint8Array.of(0x03,0x01,0x00,0x00),Uint8Array.of(0x00)]);
+const com=t=>Uint8Array.from([0x21,0xFE,t.length,...enc.encode(t),0]);
+const animated=get('concat')([plainGif.subarray(0,gifStart),gifLoop,gifGce,gifFrame,gifGce,gifFrame,gifTail]);
+const animNames=get('scanGIF')(animated).bl.map(s=>s.name);
+assert.equal(get('scanGIF')(animated).err,undefined,'animated GIF must parse without error');
+assert.equal(animNames.filter(n=>n==='Image frame').length,2,'both animation frames must be found');
+assert.equal(animNames.filter(n=>n==='GCE').length,2,'each graphic control extension is its own block');
+assert.equal(animNames.filter(n=>n==='Trailer').length,1,'trailer must be found after the last frame');
+assert.equal(animNames.filter(n=>n==='NETSCAPE loop').length,1,'animation loop extension must be found');
+assert.equal(get('scanGIF')(animated).bl.reduce((a,s)=>a+s.total,0),animated.length,'blocks must tile the file exactly with no overrun');
+const animatedComment=get('concat')([plainGif.subarray(0,gifStart),gifLoop,com('secret'),gifGce,gifFrame,gifGce,gifFrame,gifTail]);
+assert.deepEqual(Array.from(get('cleanGIF')(animatedComment,opts).bytes),Array.from(animated),'comment stripped from an animated GIF without touching frames, GCEs or loop');
+const staticTransparent=get('concat')([plainGif.subarray(0,gifStart),gifGce,gifFrame,gifTail]);
+assert.deepEqual(Array.from(get('cleanGIF')(get('concat')([plainGif.subarray(0,gifStart),gifGce,gifFrame,com('hi'),gifTail]),opts).bytes),Array.from(staticTransparent),'static GIF with transparency keeps its GCE and pixel data');
 const z=get('buildZip')([{name:'clean.jpg',data:cleanJ.bytes},{name:'clean.png',data:cleanP.bytes}]);
 assert.ok(z.size>0);
 (async()=>{
