@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f5f9f2">
+<meta name="theme-color" content="#fbfbfa">
 <title>CleanMetaTags — private image metadata cleaner</title>
 <meta name="description" content="CleanMetaTags removes image metadata and recognized AI/provenance tags locally in your browser. Drop, clean and download. No uploads.">
 <!-- Social previews use the public image URL; visitors' photos are still processed locally. -->
@@ -24,141 +24,315 @@
 <meta name="twitter:image:alt" content="CleanMetaTags banner: strip hidden image metadata in your browser">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23176c42'/%3E%3Cpath d='M16 5 25 9v6c0 6-4 10-9 12-5-2-9-6-9-12V9z' fill='none' stroke='%23b8f5cd' stroke-width='2.5'/%3E%3Cpath d='m11.5 16 3 3 6-7' fill='none' stroke='%23fff' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
+/* ------------------------------------------------------------------ tokens */
 :root{
-  --bg:#f5f9f2;
-  --card:#fff;
-  --card2:#ecf6ec;
-  --line:rgba(37,101,61,.16);
-  --line2:rgba(37,101,61,.30);
-  --txt:#183b2b;
-  --mut:#537161;
-  --soft:#687f70;
-  --mint:#177b4b;
-  --lav:#4d7564;
-  --red:#b5434d;
-  --font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color-scheme:light;
+  --bg:#fbfbfa;--surface:#fff;--surface-2:#f5f5f2;--surface-3:#ebeae5;
+  --line:#e3e2dc;--line-2:#cfcec7;--line-3:#b8b7af;
+  --txt:#191a18;--txt-2:#43443f;--mut:#71726b;--faint:#9b9c95;
+  --accent:#14663d;--accent-hi:#0e5231;--accent-tint:#e9f2ec;--accent-line:#bcd8c6;
+  --ok:#2e6c42;--ok-tint:#eaf2ec;--ok-line:#bcd8c6;
+  --warn:#87660f;--warn-tint:#f6f0dc;--warn-line:#e0d2a6;
+  --bad:#a13c31;--bad-tint:#f8ece9;--bad-line:#e5c8c2;
+  --crit:#8b2b2b;--crit-tint:#f7e8e8;--crit-line:#e0bdbd;
+  --veil:rgba(251,251,250,.84);
+  --shadow:0 1px 2px rgba(20,22,18,.05);
+  --shadow-lg:0 10px 28px rgba(20,22,18,.12);
+  --ui:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
 }
+[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#121312;--surface:#191a19;--surface-2:#1f2120;--surface-3:#272928;
+  --line:#2b2d2b;--line-2:#3b3e3c;--line-3:#4e524f;
+  --txt:#e9eae7;--txt-2:#c3c5c0;--mut:#8f928c;--faint:#6c6f6a;
+  --accent:#5cc48c;--accent-hi:#79d6a5;--accent-tint:#16281e;--accent-line:#2c5139;
+  --ok:#5cc48c;--ok-tint:#16281e;--ok-line:#2c5139;
+  --warn:#d5a94c;--warn-tint:#2a2417;--warn-line:#4d4126;
+  --bad:#e0796c;--bad-tint:#2c1c1a;--bad-line:#4f2f2a;
+  --crit:#e58585;--crit-tint:#2e1c1c;--crit-line:#553030;
+  --veil:rgba(18,19,18,.86);
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+  --shadow-lg:0 12px 32px rgba(0,0,0,.55);
+}
+
+/* ------------------------------------------------------------------- base */
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
 body{
-  margin:0;min-height:100vh;color:var(--txt);font-family:var(--font);line-height:1.5;
-  background:radial-gradient(850px 500px at 50% -125px,rgba(179,224,182,.57),transparent 75%),
-    radial-gradient(550px 550px at 98% 33%,rgba(217,235,205,.5),transparent 74%),
-    linear-gradient(180deg,#f9fcf7 0%,var(--bg) 54%,#f8fbf5 100%);
+  margin:0;min-height:100vh;background:var(--bg);color:var(--txt);
+  font-family:var(--ui);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;
 }
-body:before{
-  content:"";position:fixed;inset:0;pointer-events:none;
-  background-image:radial-gradient(rgba(46,117,67,.10) .7px,transparent .9px);
-  background-size:24px 24px;mask-image:linear-gradient(#000,transparent 64%);
-}
-button{font:inherit;cursor:pointer}
-button:disabled{opacity:.55;cursor:not-allowed}
-button:focus-visible,a:focus-visible,.drop:focus-visible,summary:focus-visible{outline:2px solid var(--mint);outline-offset:4px}
-::selection{background:#c7e8d0;color:#183b2b}
-.shell{max-width:1000px;margin:0 auto;padding:0 24px}
-.top{height:76px;border-bottom:1px solid var(--line);position:relative;z-index:1;background:rgba(255,255,255,.59);backdrop-filter:blur(16px)}
-.top .shell{height:100%;display:flex;align-items:center;justify-content:space-between}
-.brand{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:760;letter-spacing:-.65px}
-.brand-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:11px;background:linear-gradient(145deg,#1b7650,#184c37);border:1px solid rgba(16,81,49,.25);box-shadow:0 5px 12px rgba(17,83,46,.16)}
-.brand-icon svg{width:23px;height:23px}
-.brand-icon svg path:first-child{stroke:#b8f5cd}
-.brand-icon svg path:last-child{stroke:#fff}
-.brand em{font-style:normal;color:var(--mint)}
-.top-note{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:8px}
-.top-note i{width:7px;height:7px;border-radius:100%;background:#2eaa6c;box-shadow:0 0 0 4px #dff4e3}
-main{padding-bottom:100px}
-.hero{text-align:center;padding:91px 0 48px}
-.eyebrow{font-size:11px;font-weight:780;letter-spacing:2px;color:var(--mint);text-transform:uppercase;margin:0 0 17px}
-.hero h1{font-size:clamp(42px,6.4vw,74px);line-height:1.08;letter-spacing:-.06em;margin:0 0 20px;font-weight:780}
-.hero h1 span{background:linear-gradient(100deg,#1d8051 4%,#3a9966 55%,#75a866);background-clip:text;-webkit-background-clip:text;color:transparent}
-.hero .sub{font-size:17px;color:var(--mut);max-width:580px;margin:0 auto;line-height:1.65}
-.hero .sub strong{color:var(--txt);font-weight:650}
-.drop{
-  max-width:780px;min-height:260px;margin:0 auto;border:1.5px dashed #8ebfa0;border-radius:24px;
-  background:radial-gradient(360px 230px at 50% 5%,rgba(224,246,225,.80),transparent 95%),#fff;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
-  padding:32px 24px;cursor:pointer;transition:border-color .2s,background .2s,transform .2s,box-shadow .2s;
-  box-shadow:0 2px 3px rgba(15,67,37,.025),0 25px 65px rgba(39,97,54,.09);
-}
-.drop:hover,.drop.over{border-color:#298e59;background:radial-gradient(380px 230px at 50% 0%,rgba(210,241,213,.9),transparent 95%),#fff;box-shadow:0 22px 70px rgba(39,97,54,.14)}
-.drop.over{transform:scale(1.01)}
-.drop-icon{width:56px;height:56px;border:1px solid #c2e4ca;border-radius:17px;display:grid;place-items:center;color:var(--mint);background:#eaf7eb;margin-bottom:17px;box-shadow:0 8px 23px rgba(26,109,62,.08)}
-.drop-icon svg{width:27px;height:27px}
-.drop h2{font-size:21px;letter-spacing:-.45px;margin:0 0 7px}
-.drop p{color:var(--mut);font-size:14px;margin:0 0 18px}
-.pick{border:1px solid #176c42;background:#177b4b;color:#fff;border-radius:11px;padding:11px 21px;font-weight:750;box-shadow:0 8px 20px rgba(22,111,68,.20);transition:transform .15s,background .15s,box-shadow .15s}
-.pick:hover{background:#11683f;transform:translateY(-1px);box-shadow:0 10px 24px rgba(22,111,68,.24)}
-.drop small{font-size:11.5px;color:var(--soft);margin-top:14px}
-.trust{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:26px 0 0;color:var(--mut);font-size:12px}
-.trust span{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.72);border:1px solid var(--line);border-radius:999px;padding:7px 12px}
-.trust svg{width:15px;height:15px;color:#218c57;flex:none}
-.results{max-width:780px;margin:55px auto 0;scroll-margin-top:24px}
-.section-title{display:flex;align-items:center;gap:12px;margin:0 0 15px}
-.section-title h2{font-size:20px;letter-spacing:-.5px;margin:0}
-.count{font-size:11px;color:#126d40;background:#e1f4e5;border:1px solid #c2e7cb;padding:2px 8px;border-radius:99px}
-.section-title .spacer{flex:1}
-.text-btn{border:0;background:none;color:var(--mut);padding:6px 2px;font-size:12px}
-.text-btn:hover{color:var(--txt)}
-.list{display:grid;gap:10px}
-.file{border:1px solid var(--line);background:rgba(255,255,255,.93);border-radius:17px;padding:13px 16px;display:flex;align-items:center;gap:16px;min-width:0;transition:border-color .15s,box-shadow .15s;box-shadow:0 4px 16px rgba(39,97,54,.035)}
-.file:hover{border-color:var(--line2);box-shadow:0 6px 22px rgba(39,97,54,.07)}
-.thumb{width:61px;height:61px;object-fit:cover;border-radius:10px;background:#eaf2e8;flex:none;border:1px solid var(--line)}
-.file-data{min-width:0;flex:1}
-.filename{font-size:14px;font-weight:680;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.details{font-size:12px;color:var(--mut);margin-top:2px}
-.status{font-size:11.5px;color:#177b4b;margin-top:5px;display:flex;gap:5px;align-items:center}
-.status.working{color:var(--lav)}
-.status.error{color:var(--red)}
-.status svg{width:14px;height:14px;flex:none}
-.file-actions{display:flex;align-items:center;gap:8px;flex:none}
-.mini{border:1px solid #bfdfc7;border-radius:9px;background:#e9f6ec;color:#176c42;font-weight:750;font-size:12px;padding:8px 12px}
-.mini:hover{background:#d6efdc}
-.icon-btn{border:0;background:none;color:#7e9686;width:29px;height:32px;font-size:21px;line-height:1;border-radius:7px}
-.icon-btn:hover{color:var(--red);background:#fcecee}
-.progress{width:100%;height:3px;background:#e5eee4;border-radius:3px;margin-top:9px;overflow:hidden}
-.progress:before{content:"";display:block;width:35%;height:100%;background:#3b9c6a;border-radius:3px;animation:slide 1s ease-in-out infinite alternate}
-@keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
-.bottom-actions{display:flex;justify-content:flex-end;gap:12px;align-items:center;margin-top:15px}
-.download-all{border:1px solid #176c42;background:#177b4b;color:#fff;font-weight:750;padding:10px 18px;border-radius:10px;box-shadow:0 6px 20px rgba(22,111,68,.13)}
-.download-all:hover{background:#11683f}
-footer{border-top:1px solid var(--line);color:var(--soft);font-size:12px;text-align:center;padding:21px 24px 28px;background:rgba(255,255,255,.38)}
-footer p{margin:0}
-footer .credit{margin-top:8px;color:var(--mut);font-size:12.5px}
-footer .credit a{color:var(--mint);font-weight:700;text-decoration:none;border-bottom:1px solid rgba(23,123,75,.35);padding-bottom:1px;transition:color .15s,border-color .15s}
-footer .credit a:hover{color:#0f5c37;border-bottom-color:currentColor}
-footer .credit a:focus-visible{outline:2px solid var(--mint);outline-offset:3px;border-radius:4px}
-.toast-stack{position:fixed;z-index:30;bottom:22px;right:22px;max-width:min(370px,calc(100% - 44px));display:grid;gap:8px}
-.toast{background:#fff;border:1px solid var(--line2);border-left:3px solid var(--mint);border-radius:10px;padding:11px 14px;box-shadow:0 14px 44px rgba(29,84,45,.16);font-size:12.5px}
-.toast.warn{border-left-color:#c98c32}
-.toast.err{border-left-color:var(--red)}
-.toast.out{opacity:0;transform:translateX(12px);transition:.3s}
+h1,h2,h3,h4,p,ul,ol,table,caption{margin:0}
+ul{padding:0;list-style:none}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+button:disabled{opacity:.5;cursor:not-allowed}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+::selection{background:var(--accent-tint);color:var(--txt)}
+.wrap{max-width:1060px;margin:0 auto;padding:0 24px}
 .hidden{display:none!important}
-@media(max-width:600px){
-  .shell{padding:0 17px}.top{height:68px}.top-note{display:none}.hero{padding:66px 0 35px}.hero .sub{font-size:15px}
-  .drop{min-height:255px;padding:25px 15px}.trust{gap:8px;font-size:11px}.trust span{padding:6px 9px}
-  .results{margin-top:42px}.file{padding:11px;gap:10px}.thumb{width:49px;height:49px}
-  .file-actions{gap:2px}.mini{font-size:11px;padding:7px 9px}.details{font-size:11px}.status{font-size:10.5px}.bottom-actions{justify-content:center}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.micro{font-size:10.5px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;color:var(--mut)}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* -------------------------------------------------------------------- bar */
+.bar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar-in{max-width:1060px;margin:0 auto;padding:0 24px;height:52px;display:flex;align-items:center;gap:14px}
+.mark{display:flex;align-items:center;gap:9px;color:var(--txt)}
+.mark-i{width:17px;height:17px;color:var(--accent);flex:none}
+.mark-t{font-size:13.5px;font-weight:640;letter-spacing:-.015em}
+.bar-r{margin-left:auto;display:flex;align-items:center;gap:12px}
+.bar-mode{display:inline-flex;align-items:center;gap:6px;color:var(--mut);font-size:11px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+.ibtn{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--mut)}
+.ibtn:hover{color:var(--txt);border-color:var(--line-2);background:var(--surface-2)}
+.ibtn svg{width:15px;height:15px}
+.i-moon{display:none}
+[data-theme="dark"] .i-sun{display:none}
+[data-theme="dark"] .i-moon{display:block}
+
+/* --------------------------------------------------------------- heading */
+main{padding-bottom:8px}
+.head-grid{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:40px;align-items:start;padding:44px 0 28px}
+.intro h1{font-size:clamp(26px,3.3vw,33px);line-height:1.16;letter-spacing:-.03em;font-weight:640;margin-bottom:13px}
+.intro p{color:var(--txt-2);font-size:13.5px;max-width:62ch}
+.spec{border:1px solid var(--line);border-radius:6px;background:var(--surface);overflow:hidden;box-shadow:var(--shadow)}
+.spec-t{width:100%;border-collapse:collapse}
+.spec-t caption{text-align:left;padding:8px 11px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.spec-t th,.spec-t td{padding:6px 11px;text-align:left;border-bottom:1px solid var(--line);font-weight:400;vertical-align:baseline}
+.spec-t tr:last-child th,.spec-t tr:last-child td{border-bottom:0}
+.spec-t th{width:58px;font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--txt)}
+.spec-t td{font-family:var(--mono);font-size:11px;color:var(--mut)}
+
+/* ---------------------------------------------------------------- intake */
+.intake{display:flex;align-items:center;gap:15px;padding:15px 16px;border:1px dashed var(--line-2);border-radius:7px;background:var(--surface);cursor:pointer;transition:border-color .14s,background .14s}
+.intake:hover{border-color:var(--line-3)}
+body.dragging .intake{border-style:solid;border-color:var(--accent);background:var(--accent-tint)}
+.intake-i{width:34px;height:34px;flex:none;display:grid;place-items:center;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--accent)}
+.intake-i svg{width:17px;height:17px}
+.intake-t{display:flex;flex-direction:column;gap:3px;min-width:0}
+.intake-t strong{font-size:13.5px;font-weight:620;letter-spacing:-.01em}
+.intake-lim{color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.intake .btn{margin-left:auto;flex:none}
+
+/* --------------------------------------------------------------- buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line-2);background:var(--surface);color:var(--txt);border-radius:5px;padding:7px 13px;font-size:13px;font-weight:580;transition:background .13s,border-color .13s,color .13s}
+.btn:hover{background:var(--surface-2);border-color:var(--line-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-hi);border-color:var(--accent-hi)}
+[data-theme="dark"] .btn.primary{color:#0c1a11}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--mut);padding:6px 9px;font-size:12px}
+.btn.quiet:hover{color:var(--txt);background:var(--surface-2);border-color:var(--line)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn.saved{background:var(--ok-tint);border-color:var(--ok-line);color:var(--ok)}
+.btn.saved:hover{background:var(--ok-tint);border-color:var(--ok)}
+
+/* ----------------------------------------------------------------- bench */
+.bench{margin:24px 0 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);overflow:hidden;box-shadow:var(--shadow);scroll-margin-top:66px}
+.bench-h{display:flex;align-items:center;gap:10px;padding:8px 11px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.bench-h h2{color:var(--txt)}
+.num{display:inline-grid;place-items:center;min-width:20px;height:18px;padding:0 5px;border:1px solid var(--line);border-radius:4px;background:var(--surface-3);color:var(--txt-2);font-size:11px}
+.bench-stats{color:var(--mut);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp{flex:1}
+.bench-f{display:flex;align-items:center;gap:12px;padding:9px 11px;background:var(--surface-2);border-top:1px solid var(--line)}
+.bench-note{margin-right:auto;color:var(--mut);font-size:11px}
+
+/* ------------------------------------------------------------------ rows */
+.rows{display:flex;flex-direction:column}
+.row{border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:stretch}
+.toggle{display:grid;grid-template-columns:14px 40px minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 11px;text-align:left;min-width:0}
+.toggle:hover{background:var(--surface-2)}
+.row.open .toggle{background:var(--surface-2)}
+.chev{width:14px;height:14px;color:var(--faint);transition:transform .15s;flex:none}
+.row.open .chev{transform:rotate(90deg);color:var(--mut)}
+.thumb{width:40px;height:40px;object-fit:cover;display:block;border:1px solid var(--line);border-radius:4px;background:var(--surface-3)}
+.c-name{min-width:0;display:flex;flex-direction:column;gap:2px}
+.fname{font-family:var(--mono);font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fmeta{font-family:var(--mono);font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c-cells{display:grid;grid-template-columns:150px 128px 106px;gap:12px;align-items:center}
+.c-risk{display:flex;align-items:center;gap:5px;min-width:0}
+.c-strip,.c-state{font-family:var(--mono);font-size:11px;color:var(--mut);white-space:nowrap}
+.row-act{display:flex;align-items:center;gap:6px;padding:9px 11px 9px 0}
+
+/* ------------------------------------------------------------------ risk */
+.risk{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border:1px solid;border-radius:4px;font-family:var(--mono);font-size:10.5px;font-weight:620;letter-spacing:.01em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.risk:before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.r-none{color:var(--ok);border-color:var(--ok-line);background:var(--ok-tint)}
+.r-low{color:var(--ok);border-color:var(--ok-line);background:var(--ok-tint)}
+.r-med{color:var(--warn);border-color:var(--warn-line);background:var(--warn-tint)}
+.r-high{color:var(--bad);border-color:var(--bad-line);background:var(--bad-tint)}
+.r-crit{color:var(--crit);border-color:var(--crit-line);background:var(--crit-tint)}
+.arrow{color:var(--faint);font-size:11px}
+.st{display:inline-flex;align-items:center;gap:5px}
+.st svg{width:12px;height:12px;flex:none}
+.st-ok{color:var(--ok)}.st-warn{color:var(--warn)}.st-bad{color:var(--bad)}.st-mut{color:var(--mut)}
+.bar-p{display:block;height:2px;margin-top:5px;background:var(--surface-3);border-radius:2px;overflow:hidden}
+.bar-p i{display:block;width:30%;height:100%;background:var(--accent);border-radius:2px;animation:slide 1.1s ease-in-out infinite alternate}
+@keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(335%)}}
+
+/* ------------------------------------------------------------- inspector */
+.insp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 22px;padding:14px 16px 16px;background:var(--surface-2);border-top:1px solid var(--line)}
+.insp>section{min-width:0}
+.insp h4{margin-bottom:8px;color:var(--mut)}
+.isp-wide{grid-column:1/-1}
+.finds{border:1px solid var(--line);border-radius:5px;background:var(--surface);overflow:hidden}
+.finds li{display:grid;grid-template-columns:60px minmax(0,1fr) 26px;gap:8px;align-items:center;padding:5px 9px;border-bottom:1px solid var(--line)}
+.finds li:last-child{border-bottom:0}
+.fk{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+.ft{font-size:12px;color:var(--txt-2)}
+.fp{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-align:right}
+.kv{border:1px solid var(--line);border-radius:5px;background:var(--surface);overflow:hidden}
+.kv>div{display:grid;grid-template-columns:136px minmax(0,1fr);gap:10px;padding:5px 9px;border-bottom:1px solid var(--line)}
+.kv>div:last-child{border-bottom:0}
+.kv .k{font-family:var(--mono);font-size:11px;color:var(--mut)}
+.kv .v{font-family:var(--mono);font-size:11.5px;color:var(--txt-2);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.kv .v.good{color:var(--ok)}
+.kv .v.warn{color:var(--warn)}
+.kv .v.bad{color:var(--bad)}
+.gps{margin-top:8px;padding:6px 9px;border:1px solid var(--bad-line);border-left:2px solid var(--bad);border-radius:4px;background:var(--bad-tint);color:var(--bad);font-size:11.5px;overflow-wrap:anywhere}
+.notes li{position:relative;padding-left:13px;font-size:12px;color:var(--txt-2)}
+.notes li+li{margin-top:5px}
+.notes li:before{content:"";position:absolute;left:2px;top:8px;width:4px;height:4px;border-radius:50%;background:var(--line-3)}
+.twrap{border:1px solid var(--line);border-radius:5px;background:var(--surface);overflow:auto;max-height:216px}
+.log{width:100%;border-collapse:collapse}
+.log th,.log td{padding:4px 9px;text-align:left;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;font-weight:400;white-space:nowrap}
+.log thead th{position:sticky;top:0;z-index:1;background:var(--surface-2);color:var(--mut);font-size:9.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase}
+.log tbody tr:last-child td{border-bottom:0}
+.log td.n,.log th.n{text-align:right;color:var(--mut)}
+.log td.nm{white-space:normal;overflow-wrap:anywhere;color:var(--txt-2)}
+.act{display:inline-block;padding:1px 6px;border:1px solid;border-radius:3px;font-size:9.5px;font-weight:650;letter-spacing:.05em;text-transform:uppercase}
+.act-remove{color:var(--bad);border-color:var(--bad-line);background:var(--bad-tint)}
+.act-clean{color:var(--warn);border-color:var(--warn-line);background:var(--warn-tint)}
+.act-keep{color:var(--mut);border-color:var(--line-2);background:var(--surface-2)}
+.sub{border:1px solid var(--line);border-radius:5px;background:var(--surface);overflow:hidden}
+.sub>summary{display:flex;align-items:center;gap:7px;padding:6px 9px;font-family:var(--mono);font-size:11px;color:var(--mut);cursor:pointer;list-style:none}
+.sub>summary::-webkit-details-marker{display:none}
+.sub>summary:before{content:"+";width:8px;color:var(--faint);font-size:12px;line-height:1}
+.sub[open]>summary:before{content:"\2013"}
+.sub>summary:hover{background:var(--surface-2);color:var(--txt)}
+.sub .body{border-top:1px solid var(--line);max-height:230px;overflow:auto}
+.sub .twrap{border:0;border-radius:0;max-height:none}
+.none{font-size:12px;color:var(--mut);padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:var(--surface)}
+
+/* ------------------------------------------------------------------ veil */
+.veil{position:fixed;inset:0;z-index:40;display:grid;place-items:center;pointer-events:none;background:var(--veil);opacity:0;transition:opacity .14s}
+.veil.on{opacity:1}
+.veil-in{padding:20px 32px;border:1px dashed var(--accent);border-radius:8px;background:var(--accent-tint);color:var(--accent);font-size:13px}
+
+/* ---------------------------------------------------------------- toasts */
+.toasts{position:fixed;z-index:50;right:18px;bottom:18px;display:flex;flex-direction:column;gap:7px;max-width:min(380px,calc(100vw - 36px))}
+.toast{padding:9px 12px;border:1px solid var(--line-2);border-left:2px solid var(--accent);border-radius:5px;background:var(--surface);box-shadow:var(--shadow-lg);font-size:12.5px;color:var(--txt-2)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.warn{border-left-color:var(--warn)}
+.toast.err{border-left-color:var(--bad)}
+.toast.out{opacity:0;transform:translateY(4px);transition:.28s}
+
+/* ---------------------------------------------------------------- footer */
+footer{margin-top:44px;border-top:1px solid var(--line);background:var(--surface)}
+.foot-in{padding:17px 24px 26px;display:flex;flex-direction:column;gap:5px}
+footer p{font-size:12px;color:var(--mut)}
+.credit a{color:var(--txt-2);text-decoration:none;border-bottom:1px solid var(--line-2)}
+.credit a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ------------------------------------------------------------ responsive */
+@media(max-width:900px){
+  .head-grid{grid-template-columns:minmax(0,1fr);gap:22px;padding:32px 0 24px}
+  .spec{max-width:440px}
 }
-@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;scroll-behavior:auto!important}}
+@media(max-width:760px){
+  .wrap{padding:0 16px}
+  .bar-in{padding:0 16px;height:48px}
+  .bar-mode{display:none}
+  .intake{flex-wrap:wrap;padding:13px}
+  .intake .btn{margin-left:0;width:100%}
+  .row-top{grid-template-columns:minmax(0,1fr)}
+  .toggle{grid-template-columns:14px 40px minmax(0,1fr);row-gap:8px;padding:9px 10px}
+  .c-cells{grid-column:1/-1;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 10px}
+  .c-state{grid-column:1/-1}
+  .row-act{padding:0 10px 9px}
+  .insp{grid-template-columns:minmax(0,1fr);padding:12px}
+  .kv>div{grid-template-columns:108px minmax(0,1fr)}
+  .finds li{grid-template-columns:52px minmax(0,1fr) 24px}
+  .bench-f{flex-wrap:wrap}
+  .bench-note{width:100%;margin-right:0}
+  .bench-f .btn{width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
 </style>
 </head>
 <body>
-<header class="top"><div class="shell"><div class="brand"><span class="brand-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke="#69dec6" stroke-linejoin="round" d="m12 2 8 3.7v5.4c0 5.5-3.2 8.7-8 11-4.8-2.3-8-5.5-8-11V5.7L12 2Z"/><path stroke="#f2f7fb" stroke-linecap="round" stroke-linejoin="round" d="m8.5 12 2.4 2.4 4.8-5"/></svg></span>Clean<em>MetaTags</em></div><div class="top-note"><i></i> Private by design</div></div></header>
-<main class="shell">
-  <section class="hero" aria-labelledby="title"><p class="eyebrow">A cleaner way to share</p><h1 id="title">Your image.<br><span>Nothing extra.</span></h1><p class="sub">Remove hidden metadata and <strong>AI/provenance tags automatically</strong>. No settings to figure out. No uploads. Just a clean copy, ready to share.</p></section>
-  <section class="drop" id="drop" role="button" tabindex="0" aria-label="Choose images or drop them here">
-    <span class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></span>
-    <h2>Drop images here</h2><p>or choose files from your device</p><button class="pick" id="browse" type="button">Choose images</button><small>JPEG, PNG, WebP, GIF, SVG &amp; other browser-readable images · up to 50 MB each</small>
+<div class="veil" id="veil" aria-hidden="true"><div class="veil-in mono">Release to queue images</div></div>
+<header class="bar">
+  <div class="bar-in">
+    <span class="mark"><svg class="mark-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path stroke-linejoin="round" d="m12 2 8 3.7v5.4c0 5.5-3.2 8.7-8 11-4.8-2.3-8-5.5-8-11V5.7L12 2Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m8.5 12 2.4 2.4 4.8-5"/></svg><span class="mark-t">CleanMetaTags</span></span>
+    <span class="bar-r">
+      <span class="bar-mode mono"><i class="dot"></i>on-device</span>
+      <button class="ibtn" id="theme" type="button" aria-pressed="false" title="Switch colour theme">
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        <span class="sr-only">Switch colour theme</span>
+      </button>
+    </span>
+  </div>
+</header>
+<main class="wrap" id="top">
+  <div class="head-grid">
+    <section class="intro">
+      <h1>Strip image metadata<br>before you share.</h1>
+      <p>EXIF, GPS coordinates, capture timestamps, camera and author fields, embedded thumbnails, XMP/IPTC edit history, colour profiles and C2PA / AI provenance manifests are removed from the file bytes in this tab. Nothing is uploaded, and every export is re-scanned before the download is allowed.</p>
+    </section>
+    <aside class="spec" aria-label="Supported formats and cleaning method">
+      <table class="spec-t">
+        <caption class="micro">Container handling</caption>
+        <tbody>
+          <tr><th scope="row">JPEG</th><td>marker-level · lossless</td></tr>
+          <tr><th scope="row">PNG</th><td>chunk-level · CRC checked</td></tr>
+          <tr><th scope="row">WebP</th><td>RIFF chunk-level</td></tr>
+          <tr><th scope="row">GIF</th><td>extension-level · frames kept</td></tr>
+          <tr><th scope="row">SVG</th><td>XML sanitised</td></tr>
+          <tr><th scope="row">Other</th><td>decoded &rarr; PNG</td></tr>
+        </tbody>
+      </table>
+    </aside>
+  </div>
+  <section class="intake" id="drop" role="button" tabindex="0" aria-label="Add images. Choose files, drop them anywhere on the page, or paste from the clipboard.">
+    <span class="intake-i" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></span>
+    <span class="intake-t">
+      <strong>Drop images anywhere, paste, or browse</strong>
+      <span class="intake-lim mono">JPEG · PNG · WebP · GIF · SVG · other browser-readable &nbsp;|&nbsp; 50 MB per file · 25 files · 200 MB queue</span>
+    </span>
+    <button class="btn primary" id="browse" type="button">Choose images</button>
   </section>
-  <div class="trust" aria-label="Privacy and processing details"><span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>AI tags always removed</span><span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>Images stay on this device</span><span><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>Safe, generic download names</span></div>
-  <section class="results hidden" id="results" aria-label="Cleaned images"><div class="section-title"><h2>Your images</h2><span class="count" id="count">0</span><span class="spacer"></span><button class="text-btn" type="button" id="clear">Clear all</button></div><div class="list" id="list"></div><div class="bottom-actions"><button class="download-all hidden" type="button" id="zip">Download all as ZIP ↓</button></div></section>
-
+  <section class="bench hidden" id="results" aria-label="Cleaning queue">
+    <div class="bench-h">
+      <h2 class="micro">Queue</h2>
+      <span class="num mono" id="count">0</span>
+      <span class="bench-stats mono" id="stats"></span>
+      <span class="sp"></span>
+      <button class="btn quiet" type="button" id="clear">Clear</button>
+    </div>
+    <div class="rows" id="list"></div>
+    <div class="bench-f">
+      <span class="bench-note mono" id="zipnote"></span>
+      <button class="btn primary hidden" type="button" id="zip">Download all as ZIP</button>
+    </div>
+  </section>
 </main>
-<footer><p>One page. No account. No tracking. Your photos are never uploaded.</p><p class="credit">&copy; <a href="https://github.com/aanneion" target="_blank" rel="noopener noreferrer" title="github.com/aanneion">Abdullah Al Noman Neion</a> &ndash; 2026</p></footer>
-<div class="toast-stack" id="toasts" role="status" aria-live="polite"></div>
+<footer>
+  <div class="wrap foot-in">
+    <p>No account, no tracking, no analytics. Image processing makes no network requests &mdash; files are read, rewritten, verified and exported entirely inside this tab.</p>
+    <p class="credit">&copy; <a href="https://github.com/aanneion" target="_blank" rel="noopener noreferrer" title="github.com/aanneion">Abdullah Al Noman Neion</a> &middot; 2026</p>
+  </div>
+</footer>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 <input id="fileIn" type="file" accept="image/*,.tif,.tiff,.avif,.heic,.heif,.svg" multiple hidden>
 <script>
-"use strict";
 "use strict";
 /* ============================== utils ============================== */
 const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
@@ -899,48 +1073,289 @@ function buildZip(items){
 }
 
 /* ============================== UI ============================== */
+/* Session-only queue. Nothing is persisted: no localStorage image data, no
+   IndexedDB, no history entries. Only the colour-theme choice is stored. */
+const THEME_KEY="cleanmetatags.theme";
+S.seq=0;            // monotonic export ordinal — keeps generic filenames unique
+S.open=new Set();   // ids of rows with the inspector expanded
+S.clearTimer=null;  // pending "everything saved → forget the queue" timer
+
+/* ---------------------------------------------------------------- theme */
+const mq=window.matchMedia?window.matchMedia("(prefers-color-scheme: dark)"):null;
+let themePref=null;
+try{themePref=localStorage.getItem(THEME_KEY);}catch(e){themePref=null;}
+function themeResolved(){
+  if(themePref==="light"||themePref==="dark")return themePref;
+  return mq&&mq.matches?"dark":"light";
+}
+function applyTheme(){
+  const t=themeResolved();
+  document.documentElement.setAttribute("data-theme",t);
+  const btn=$("#theme");
+  if(btn){
+    btn.setAttribute("aria-pressed",String(t==="dark"));
+    btn.title=t==="dark"?"Switch to light theme":"Switch to dark theme";
+  }
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.setAttribute("content",t==="dark"?"#121312":"#fbfbfa");
+}
+if(mq){
+  const onMQ=()=>{if(themePref!=="light"&&themePref!=="dark")applyTheme();};
+  if(mq.addEventListener)mq.addEventListener("change",onMQ);
+  else if(mq.addListener)mq.addListener(onMQ);
+}
+
+/* ------------------------------------------------------------- utilities */
+const FIND_KIND={gps:"GPS",camera:"Camera",time:"Time",author:"Author",thumb:"Thumb",xmp:"XMP/IPTC",ai:"C2PA/AI",text:"Text",icc:"ICC"};
+const RISK_CLASS={Critical:"r-crit",High:"r-high",Medium:"r-med",Low:"r-low"};
+function riskLevel(score){return score>=75?"Critical":score>=50?"High":score>=20?"Medium":"Low";}
+function riskChip(score,label){
+  if(score<=0)return '<span class="risk r-none">Clean 0</span>';
+  const lv=label||riskLevel(score);
+  return '<span class="risk '+(RISK_CLASS[lv]||"r-low")+'">'+esc(lv)+" "+score+"</span>";
+}
+function methodLabel(R,A){
+  if(R.method==="lossless")return A.flags&&A.flags.icc?"Lossless · colour profile removed":"Lossless · compressed data copied";
+  if(R.method==="text")return "Vector XML sanitised";
+  return "Browser re-encode";
+}
+function kv(k,v,cls){return '<div><span class="k">'+esc(k)+'</span><span class="v'+(cls?" "+cls:"")+'">'+v+"</span></div>";}
+
+/* Generic export names — original filenames can carry names, dates or places. */
 function outName(it){
-  // Original filenames can contain names, dates or locations; never reuse them in exports.
-  const index=Math.max(1,S.files.indexOf(it)+1);
-  const ext=MIME_EXT[it.result?.mime]||"png";
-  return "cleanmetatags-"+String(index).padStart(2,"0")+"."+ext;
+  const ext=MIME_EXT[it.result?it.result.mime:null]||"png";
+  return "cleanmetatags-"+String(it.ord||1).padStart(2,"0")+"."+ext;
+}
+function saveBlob(blob,name){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=name;a.rel="noopener";
+  document.body.appendChild(a);a.click();
+  // Free the blob and the anchor without touching session history.
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},4000);
 }
 function downloadIt(it){
   if(it.status!=="done"||!it.result)return;
   saveBlob(new Blob([it.result.bytes],{type:it.result.mime}),outName(it));
+  it.saved=true;
+  render();
+  scheduleAutoClear();
 }
-function saveBlob(blob,name){
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;
-  document.body.appendChild(a);a.click();
-  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},5000);
+function forgetQueue(reason){
+  clearTimeout(S.clearTimer);S.clearTimer=null;
+  S.files.forEach(it=>URL.revokeObjectURL(it.url));
+  S.files=[];S.open.clear();render();
+  if(reason)toast(reason,"ok");
 }
+
+/* Once every image in the queue has been saved, the page forgets them: rows
+   stay visible while a download is still pending, then the queue empties and
+   all blob URLs and decoded bytes are released. */
+function scheduleAutoClear(){
+  clearTimeout(S.clearTimer);S.clearTimer=null;
+  const pending=S.files.filter(it=>it.status==="ready"||it.status==="work");
+  const done=S.files.filter(it=>it.status==="done");
+  if(pending.length||!done.length||done.some(it=>!it.saved))return;
+  S.clearTimer=setTimeout(()=>{
+    S.clearTimer=null;
+    // Re-check: the queue may have changed while the beat elapsed.
+    const stillPending=S.files.filter(it=>it.status==="ready"||it.status==="work");
+    const stillDone=S.files.filter(it=>it.status==="done");
+    if(stillPending.length||!stillDone.length||stillDone.some(it=>!it.saved))return;
+    const failed=S.files.filter(it=>it.status==="error").length;
+    const n=stillDone.length;
+    forgetQueue(n+" image"+(n===1?"":"s")+" saved to your device — nothing is retained on this page."
+      +(failed?" "+failed+" file"+(failed===1?"":"s")+" could not be cleaned and "+(failed===1?"was":"were")+" discarded too.":""));
+  },900);
+}
+
+/* ------------------------------------------------------------- inspector */
+function inspectorHTML(it){
+  const A=it.analysis,R=it.result,o={...S.opts},out=[];
+
+  /* ---- column 1: what the source contained ---- */
+  let left='<section><h4 class="micro">Found in source</h4>';
+  const factors=(A.risk&&A.risk.factors)||[];
+  if(factors.length){
+    left+='<ul class="finds">'+factors.map(f=>
+      '<li><span class="fk">'+esc(FIND_KIND[f.kind]||f.kind)+'</span><span class="ft">'+esc(f.t)+'</span><span class="fp">'+esc(String(f.pts))+"</span></li>"
+    ).join("")+"</ul>";
+  }else{
+    left+='<p class="none">No recognized metadata carriers found in this file.</p>';
+  }
+  if(A.gps){
+    const alt=A.gps.alt!=null?" · alt "+A.gps.alt.toFixed(1)+" m":"";
+    left+='<p class="gps mono">GPS '+A.gps.lat.toFixed(5)+", "+A.gps.lon.toFixed(5)+esc(alt)+" — removed</p>";
+  }
+  left+="</section>";
+
+  /* ---- column 2: verification of the output ---- */
+  let right='<section><h4 class="micro">Output verification</h4>';
+  if(R){
+    const V=R.verify||{};
+    right+='<div class="kv">'
+      +kv("Export name",esc(outName(it)))
+      +kv("MIME / size",esc(R.mime)+" · "+esc(fmtBytes(R.bytes.length)))
+      +kv("Method",esc(methodLabel(R,A)))
+      +kv("Re-scan: segments",(V.left!=null?String(V.left):"—")+" metadata carrier"+(V.left===1?"":"s")+" left",V.left?"bad":"good")
+      +kv("Re-scan: EXIF fields",(V.tags!=null?String(V.tags):"—")+" left",V.tags?"bad":"good")
+      +kv("Provenance / C2PA",V.aiLeft?"signals remain":"no signals",V.aiLeft?"bad":"good")
+      +kv("Colour profile",V.hasColorProfile?"still embedded":"removed",V.hasColorProfile?"warn":"good")
+      +kv("Pixel data",R.px?(R.px.match?"identical hash to source":"differs — re-encoded"):"not compared",R.px&&R.px.match?"good":"warn")
+      +kv("Clean time",R.ms.toFixed(0)+" ms")
+      +"</div>";
+  }else{
+    right+='<p class="none">'+(it.status==="error"?"Cleaning failed — see the row status.":"Waiting to be cleaned.")+"</p>";
+  }
+  right+="</section>";
+  out.push(left,right);
+
+  /* ---- full width: segment-level log ---- */
+  if(R&&R.log&&R.log.length){
+    const rows=R.log.slice(0,80).map(l=>
+      '<tr><td class="nm">'+esc(l.name||l.kind)+'</td><td><span class="act act-'+esc(l.action)+'">'+esc(l.action)+"</span></td>"+
+      '<td class="n">'+esc(l.size?fmtBytes(l.size):"—")+"</td></tr>").join("");
+    const more=R.log.length>80?'<tr><td class="nm" colspan="3">'+(R.log.length-80)+" further entries omitted</td></tr>":"";
+    out.push('<section class="isp-wide"><h4 class="micro">Segment log</h4><div class="twrap"><table class="log">'
+      +"<thead><tr><th>Segment</th><th>Action</th><th class=\"n\">Size</th></tr></thead><tbody>"+rows+more+"</tbody></table></div></section>");
+  }
+
+  /* ---- full width: parsed EXIF fields with per-tag decisions ---- */
+  if(A.exifTags&&A.exifTags.length){
+    const rows=A.exifTags.slice(0,120).map(t=>{
+      const act=tagAction(t,o);
+      return '<tr><td class="nm">'+esc(t.ifd)+'</td><td class="nm">'+esc(t.name)+'</td><td class="nm">'+esc(String(t.value))+'</td>'+
+        '<td><span class="act act-'+(act==="keep"?"keep":"remove")+'">'+esc(act)+"</span></td></tr>";}).join("");
+    const more=A.exifTags.length>120?'<tr><td class="nm" colspan="4">'+(A.exifTags.length-120)+" further fields omitted</td></tr>":"";
+    out.push('<section class="isp-wide"><details class="sub"><summary>Parsed metadata fields ('+A.exifTags.length+')</summary><div class="body"><div class="twrap"><table class="log">'
+      +"<thead><tr><th>IFD</th><th>Field</th><th>Value</th><th>Action</th></tr></thead><tbody>"+rows+more+"</tbody></table></div></div></details></section>");
+  }
+
+  /* ---- full width: engine notes ---- */
+  const notes=[].concat(A.notes||[],(R&&R.notes)||[]);
+  if(notes.length){
+    out.push('<section class="isp-wide"><h4 class="micro">Notes</h4><ul class="notes">'
+      +notes.map(n=>"<li>"+esc(n)+"</li>").join("")+"</ul></section>");
+  }
+  return out.join("");
+}
+
+/* ---------------------------------------------------------------- render */
+function rowHTML(it){
+  const A=it.analysis,R=it.result;
+  const dims=A.w&&A.h?A.w+"×"+A.h:"dimensions unknown";
+  const outSize=R?fmtBytes(R.bytes.length):null;
+  const before=riskChip(A.risk?A.risk.score:0,A.risk?A.risk.level:null);
+  const after=R?riskChip((R.verify&&R.verify.risk)||0):'<span class="risk r-none">pending</span>';
+  const strip=R?("−"+(R.removedItems||0)+" item"+(R.removedItems===1?"":"s")+" · −"+fmtBytes(R.removedBytes||0)):"—";
+
+  let state,cls;
+  if(it.status==="work"){state='<span class="bar-p"><i></i></span>';cls="st-warn";}
+  else if(it.status==="error"){cls="st-bad";}
+  else if(it.status==="done"){cls=it.saved?"st-ok":"st-ok";}
+  else cls="st-mut";
+  const stateText=it.status==="work"?"Cleaning":it.status==="error"?"Failed":it.status==="done"?(it.saved?"Saved":"Verified"):"Queued";
+  const tick='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 4 4 10-9"/></svg>';
+  const stateCell=it.status==="work"
+    ?'<span class="c-state"><span class="st st-warn">'+stateText+'</span>'+state+"</span>"
+    :'<span class="c-state"><span class="st '+cls+'">'+(it.status==="done"||it.status==="error"?tick:"")+stateText+"</span></span>";
+
+  const open=S.open.has(it.id);
+  return '<div class="row-top">'
+    +'<button class="toggle" type="button" aria-expanded="'+open+'" aria-controls="insp-'+it.id+'" data-act="toggle" data-fid="'+it.id+'" data-fkind="toggle">'
+      +'<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>'
+      +'<img class="thumb" alt="" src="'+it.url+'">'
+      +'<span class="c-name"><span class="fname" title="'+esc(it.name)+'">'+esc(it.name)+'</span>'
+      +'<span class="fmeta">'+esc(A.format)+" · "+esc(dims)+" · "+esc(fmtBytes(it.size))+(outSize?" → "+esc(outSize):"")+"</span></span>"
+      +'<span class="c-cells"><span class="c-risk">'+before+'<span class="arrow" aria-hidden="true">→</span>'+after+"</span>"
+      +'<span class="c-strip">'+esc(strip)+"</span>"+stateCell+"</span>"
+    +"</button>"
+    +'<span class="row-act"></span>'
+  +"</div>"
+  // The inspector is expensive to build (segment log + parsed field table), so
+  // collapsed rows ship an empty shell and are filled on first expand.
+  +'<div class="insp'+(open?"":" hidden")+'" id="insp-'+it.id+'" data-filled="'+(open?"1":"0")+'">'+(open?inspectorHTML(it):"")+"</div>";
+}
+
 function render(){
-  const box=$("#list");box.replaceChildren();
-  $("#results").classList.toggle("hidden",!S.files.length);
-  $("#count").textContent=S.files.length;
-  const ready=S.files.filter(it=>it.status==="done"&&it.result);
-  $("#zip").classList.toggle("hidden",ready.length<2);
-  for(const it of S.files){
-    const row=document.createElement("article");row.className="file";
-    const size=it.result?fmtBytes(it.result.bytes.length):"";
-    const desc=esc(it.analysis.format)+" · "+fmtBytes(it.size)+(size?" → "+size:"");
-    const note=it.status==="done"?"Verified clean · "+ (it.result.method==="lossless"?(it.analysis.flags.icc?"color profile removed; colors may vary":"original image data preserved"):it.result.method==="text"?"vector safety pass":"browser re-encode"):
-      it.status==="work"?"Cleaning securely…":it.status==="error"?"Could not clean · "+esc(it.error||"unsupported image"):"Ready to clean";
-    row.innerHTML='<img class="thumb" alt="" src="'+it.url+'"><div class="file-data"><div class="filename" title="'+esc(it.name)+'">'+esc(it.name)+'</div><div class="details">'+desc+'</div><div class="status '+(it.status==="error"?"error":it.status==="work"?"working":"")+'">'+(it.status==="done"?'<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 4 4 10-9"/></svg>':"")+note+'</div>'+(it.status==="work"?'<div class="progress"></div>':"")+'</div><div class="file-actions"></div>';
-    const actions=row.querySelector(".file-actions");
+  const files=S.files,list=$("#list");
+  // Rows are rebuilt wholesale, so remember which control had focus and give it
+  // back afterwards — otherwise clicking Download drops focus to <body>.
+  const ae=document.activeElement;
+  const focusKey=ae&&ae.dataset&&ae.dataset.fid?ae.dataset.fkind+"|"+ae.dataset.fid:null;
+  $("#results").classList.toggle("hidden",!files.length);
+  $("#count").textContent=String(files.length);
+
+  const done=files.filter(it=>it.status==="done"&&it.result);
+  const saved=done.filter(it=>it.saved);
+  const failed=files.filter(it=>it.status==="error").length;
+  const working=files.filter(it=>it.status==="work"||it.status==="ready").length;
+  const stripped=done.reduce((n,it)=>n+(it.result.removedBytes||0),0);
+  const items=done.reduce((n,it)=>n+(it.result.removedItems||0),0);
+
+  const bits=[];
+  if(items)bits.push("−"+items+" metadata item"+(items===1?"":"s"));
+  if(stripped)bits.push("−"+fmtBytes(stripped)+" stripped");
+  if(done.length)bits.push(done.length+" verified");
+  if(failed)bits.push(failed+" failed");
+  if(working)bits.push(working+" pending");
+  $("#stats").textContent=bits.join(" · ");
+
+  $("#zip").classList.toggle("hidden",done.length<2);
+  $("#zip").textContent=done.length>=2?"Download all as ZIP ("+done.length+")":"Download all as ZIP";
+  $("#zipnote").textContent=!done.length?"Nothing ready yet."
+    :saved.length===done.length?"Everything saved — clearing the queue."
+    :saved.length?"Saved "+saved.length+" of "+done.length+" · the queue clears itself once every image is downloaded."
+    :"The queue clears itself once every image is downloaded.";
+
+  list.replaceChildren();
+  for(const it of files){
+    const row=document.createElement("article");
+    row.className="row"+(S.open.has(it.id)?" open":"");
+    row.innerHTML=rowHTML(it);
+
+    const act=row.querySelector(".row-act");
     if(it.status==="done"){
-      const dl=document.createElement("button");dl.type="button";dl.className="mini";dl.textContent="Download";dl.setAttribute("aria-label","Download cleaned "+it.name);dl.onclick=()=>downloadIt(it);actions.appendChild(dl);
+      const dl=document.createElement("button");
+      dl.type="button";dl.className="btn sm"+(it.saved?" saved":"");
+      dl.textContent=it.saved?"Saved":"Download";
+      dl.title=it.saved?"Download "+outName(it)+" again":"Save "+outName(it);
+      dl.setAttribute("aria-label",(it.saved?"Download again: ":"Download cleaned image as ")+outName(it));
+      dl.dataset.fid=it.id;dl.dataset.fkind="download";
+      dl.onclick=()=>downloadIt(it);
+      act.appendChild(dl);
     }else if(it.status==="error"){
-      const retry=document.createElement("button");retry.type="button";retry.className="mini";retry.textContent="Retry";retry.onclick=()=>{it.status="ready";it.error=null;render();runCleaning();};actions.appendChild(retry);
+      const retry=document.createElement("button");
+      retry.type="button";retry.className="btn sm";retry.textContent="Retry";
+      retry.dataset.fid=it.id;retry.dataset.fkind="retry";
+      retry.onclick=()=>{it.status="ready";it.error=null;it.saved=false;render();runCleaning();};
+      act.appendChild(retry);
     }
-    const remove=document.createElement("button");remove.type="button";remove.className="icon-btn";remove.title="Remove "+it.name;remove.setAttribute("aria-label","Remove "+it.name);remove.textContent="×";
-    remove.onclick=()=>{URL.revokeObjectURL(it.url);S.files=S.files.filter(f=>f!==it);render();};actions.appendChild(remove);
-    box.appendChild(row);
+    const rm=document.createElement("button");
+    rm.type="button";rm.className="btn quiet sm";rm.textContent="Remove";
+    rm.setAttribute("aria-label","Remove "+it.name+" from the queue");
+    rm.dataset.fid=it.id;rm.dataset.fkind="remove";
+    rm.onclick=()=>{
+      URL.revokeObjectURL(it.url);
+      S.files=S.files.filter(f=>f!==it);S.open.delete(it.id);
+      render();scheduleAutoClear();
+    };
+    act.appendChild(rm);
+    list.appendChild(row);
+  }
+  if(focusKey){
+    const parts=focusKey.split("|");
+    const next=list.querySelector('[data-fkind="'+parts[0]+'"][data-fid="'+parts[1]+'"]');
+    if(next)next.focus({preventScroll:true});
+    else if(!files.length){const d=$("#drop");if(d)d.focus({preventScroll:true});}
   }
 }
+
+/* --------------------------------------------------------------- intake */
 async function addFiles(list){
   const arr=Array.from(list||[]);
   if(!arr.length)return;
+  clearTimeout(S.clearTimer);S.clearTimer=null;
   let used=S.files.reduce((sum,it)=>sum+it.size,0),added=0;
   for(const f of arr){
     if(S.files.length>=25){toast("Maximum 25 images per queue.","warn");break;}
@@ -951,7 +1366,9 @@ async function addFiles(list){
       const bytes=new Uint8Array(await f.arrayBuffer());
       const analysis=analyze(bytes,f.type,f.name);
       const detected={JPEG:"image/jpeg",PNG:"image/png",WEBP:"image/webp",GIF:"image/gif",SVG:"image/svg+xml",BMP:"image/bmp",TIFF:"image/tiff",AVIF:"image/avif",HEIC:"image/heic"};
-      const it={id:uid(),name:f.name,size:f.size,bytes,analysis,mime:detected[analysis.format]||f.type||"application/octet-stream",url:URL.createObjectURL(f),status:"ready",result:null,error:null};
+      const it={id:uid(),ord:++S.seq,name:f.name,size:f.size,bytes,analysis,
+        mime:detected[analysis.format]||f.type||"application/octet-stream",
+        url:URL.createObjectURL(f),status:"ready",result:null,error:null,saved:false};
       S.files.push(it);used+=f.size;added++;
     }catch(e){toast("Could not read "+esc(f.name)+".","err");}
   }
@@ -973,33 +1390,98 @@ async function runCleaning(){
         const result=await cleanItem(it);
         if(!S.files.includes(it))continue;
         it.result=result;it.status="done";completed++;
-      }catch(e){if(!S.files.includes(it))continue;it.status="error";it.error=e.message||"This format cannot be cleaned safely.";}
+      }catch(e){
+        if(!S.files.includes(it))continue;
+        it.status="error";it.error=e.message||"This format cannot be cleaned safely.";
+        toast(esc(it.name)+" — "+esc(it.error),"err");
+      }
       render();
     }
   }finally{
     S.busy=false;
-    if(completed)toast(completed+" image"+(completed===1?"":"s")+" cleaned and ready to download.","ok");
+    if(completed)toast(completed+" image"+(completed===1?"":"s")+" cleaned and verified.","ok");
     if(S.files.some(f=>f.status==="ready"))queueMicrotask(runCleaning);
+    else scheduleAutoClear();
   }
 }
+
+/* ------------------------------------------------------------- wiring */
 const pick=()=>$("#fileIn").click();
 $("#browse").addEventListener("click",e=>{e.stopPropagation();pick();});
 $("#drop").addEventListener("click",pick);
-$("#drop").addEventListener("keydown",e=>{if(e.target===$("#drop")&&(e.key==="Enter"||e.key===" ")){e.preventDefault();pick();}});
+$("#drop").addEventListener("keydown",e=>{
+  if(e.target===$("#drop")&&(e.key==="Enter"||e.key===" ")){e.preventDefault();pick();}
+});
 $("#fileIn").addEventListener("change",e=>{addFiles(e.target.files);e.target.value="";});
-const drop=$("#drop");
-["dragenter","dragover"].forEach(type=>drop.addEventListener(type,e=>{e.preventDefault();drop.classList.add("over");}));
-["dragleave","drop"].forEach(type=>drop.addEventListener(type,e=>{e.preventDefault();drop.classList.remove("over");}));
-drop.addEventListener("drop",e=>addFiles(e.dataTransfer.files));
-document.addEventListener("paste",e=>{const files=[];for(const item of e.clipboardData?.items||[])if(item.type.startsWith("image/")){const f=item.getAsFile();if(f)files.push(f);}if(files.length)addFiles(files);});
-$("#clear").addEventListener("click",()=>{S.files.forEach(it=>URL.revokeObjectURL(it.url));S.files=[];render();});
+
+/* Expand / collapse the inspector. Delegated so re-renders never lose listeners. */
+$("#list").addEventListener("click",e=>{
+  const btn=e.target.closest("[data-act='toggle']");
+  if(!btn)return;
+  const row=btn.closest(".row");
+  const insp=row?row.querySelector(".insp"):null;
+  if(!insp)return;
+  const id=insp.id.replace(/^insp-/,"");
+  if(S.open.has(id))S.open.delete(id);else S.open.add(id);
+  const open=S.open.has(id);
+  row.classList.toggle("open",open);
+  btn.setAttribute("aria-expanded",String(open));
+  insp.classList.toggle("hidden",!open);
+  if(open&&insp.dataset.filled!=="1"){
+    const it=S.files.filter(f=>f.id===id)[0];
+    if(it)insp.innerHTML=inspectorHTML(it);
+    insp.dataset.filled="1";
+  }
+});
+
+/* Whole-page drag and drop, with a depth counter so nested enters don't flicker. */
+let dragDepth=0;
+const hasFiles=e=>!!(e.dataTransfer&&Array.prototype.indexOf.call(e.dataTransfer.types,"Files")>=0);
+function setVeil(on){
+  dragDepth=on?Math.max(1,dragDepth):0;
+  $("#veil").classList.toggle("on",on);
+  document.body.classList.toggle("dragging",on);
+}
+document.addEventListener("dragenter",e=>{if(!hasFiles(e))return;e.preventDefault();dragDepth++;setVeil(true);});
+document.addEventListener("dragover",e=>{if(!hasFiles(e))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";});
+document.addEventListener("dragleave",e=>{if(!hasFiles(e))return;dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)setVeil(false);});
+document.addEventListener("drop",e=>{
+  if(!hasFiles(e))return;
+  e.preventDefault();setVeil(false);
+  if(e.dataTransfer.files&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files);
+});
+document.addEventListener("paste",e=>{
+  const files=[];
+  for(const item of e.clipboardData?e.clipboardData.items:[]){
+    if(item.type&&item.type.indexOf("image/")===0){const f=item.getAsFile();if(f)files.push(f);}
+  }
+  if(files.length)addFiles(files);
+});
+
+$("#clear").addEventListener("click",()=>forgetQueue(S.files.length?"Queue cleared — nothing retained on this page.":null));
+$("#theme").addEventListener("click",()=>{
+  themePref=themeResolved()==="dark"?"light":"dark";
+  try{localStorage.setItem(THEME_KEY,themePref);}catch(e){}
+  applyTheme();
+});
 $("#zip").addEventListener("click",()=>{
   const done=S.files.filter(it=>it.status==="done"&&it.result);
   if(done.length<2)return;
   const names=new Set();
-  const items=done.map(it=>{const original=outName(it),dot=original.lastIndexOf(".");let name=original,i=2;while(names.has(name))name=original.slice(0,dot)+"-"+(i++)+original.slice(dot);names.add(name);return{name,data:it.result.bytes};});
+  const items=done.map(it=>{
+    const base=outName(it),dot=base.lastIndexOf(".");
+    let name=base,i=2;
+    while(names.has(name))name=base.slice(0,dot)+"-"+(i++)+base.slice(dot);
+    names.add(name);
+    return{name,data:it.result.bytes};
+  });
   saveBlob(buildZip(items),"cleanmetatags-images.zip");
+  done.forEach(it=>{it.saved=true;});
+  render();
+  scheduleAutoClear();
 });
+
+applyTheme();
 render();
 </script>
 </body>
